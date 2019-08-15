@@ -1,0 +1,1575 @@
+diff --git a/drivers/hwmon/ec_fan_cpld.c b/drivers/hwmon/ec_fan_cpld.c
+new file mode 100644
+index 000000000000..648b07c35546
+--- /dev/null
++++ b/drivers/hwmon/ec_fan_cpld.c
+@@ -0,0 +1,1541 @@
++/*
++ * ec_fan_cpld.c - Part of lm_sensors, Linux kernel modules for hardware
++ *             monitoring
++ *
++ * Copyright (C) 2019-2029 Simon Fannin <simon_fan@edge-core.com>
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
++ */
++
++/*
++ * Supports following chips:
++ *
++ * Chip         #vin    #fan    #pwm    #temp   wchipid vendid  i2c     ISA
++ * EC_FAN_CPLD  0       4       4       0       0x68    0x5ca3  yes     no
++ *
++ */
++
++#include <linux/module.h>
++#include <linux/init.h>
++#include <linux/slab.h>
++#include <linux/i2c.h>
++#include <linux/hwmon.h>
++#include <linux/hwmon-vid.h>
++#include <linux/hwmon-sysfs.h>
++#include <linux/err.h>
++#include <linux/mutex.h>
++#include <linux/jiffies.h>
++
++#define NUMBER_OF_FANIN         4
++#define NUMBER_OF_PWM           4
++
++#define CPLD_FAN_I2C_REG_BD_INFO	0
++#define CPLD_FAN_I2C_REG_CPLD_VERSION	1
++#define CPLD_FAN_I2C_REG_RESET		8
++#define     CPLD_FAN_REG_RESET_BIT		(1 << 7)
++#define CPLD_FAN_I2C_REG_MISC_1	0x20
++#define     CPLD_FAN_REG_JTAG_BIT		(1 << 1)
++#define     CPLD_FAN_REG_CLOCK_SEL_BIT		(1 << 0)
++#define CPLD_FAN_I2C_REG_WATCHDOG_ENB	0x28
++#define     CPLD_FAN_REG_WDT_UPD_BIT		(1 << 1)
++#define     CPLD_FAN_REG_WDT_EN_BIT		(1 << 0)
++#define CPLD_FAN_I2C_REG_WATCHDOG_TMR_VAL	0x29
++#define CPLD_FAN_I2C_REG_WATCHDOG_TRIGGER	0x2A
++#define     CPLD_FAN_REG_WDT_TIMEOUT_BIT	(1 << 1)
++#define     CPLD_FAN_REG_WDT_TRIG_BIT		(1 << 0)
++#define CPLD_FAN_I2C_REG_PRESENT	0x80
++#define CPLD_FAN_I2C_REG_DIRECTION	0x81
++#define CPLD_FAN_I2C_REG_LED_GREEN	0x84
++#define CPLD_FAN_I2C_REG_LED_RED	0x85
++#define CPLD_FAN_I2C_REG_POWER_ENB	0x86
++#define     CPLD_FAN_REG_FANTRAY_BIT(x)	(1 << x)
++#define CPLD_FAN_I2C_REG_INTERRUPT_MASK	0x82
++#define CPLD_FAN_I2C_REG_INTERRUPT_STATUS	0x83
++#define     CPLD_FAN_REG_FAN_INTR_BIT(x)	(1 << x)
++#define     CPLD_FAN_REG_TEMP_INTR_BIT(x)	(1 << (x+6))
++#define CPLD_FAN_I2C_REG_PWM		0x87
++#define CPLD_FAN_I2C_REG_PWM_CLK_DIV		0x88
++#define CPLD_FAN_I2C_REG_TACH_CLK_DIV		0x89
++#define CPLD_FAN_I2C_REG_FRONT_MIN		0x8A
++#define CPLD_FAN_I2C_REG_FRONT_MAX		0x8B
++#define CPLD_FAN_I2C_REG_REAR_MIN		0x8C
++#define CPLD_FAN_I2C_REG_REAR_MAX		0x8D
++#define CPLD_FAN_I2C_REG_FRNT_SPEED		0x90
++#define CPLD_FAN_I2C_REG_REAR_SPEED		0x98
++
++#define CPLD_FAN_ENABLE_STR(x) \
++	if( !strncmp(x, "on", 2) || !strncmp(x, "ON", 2) || \
++	    !strncmp(x, "enable", 6) || !strncmp(x, "ENABLE", 6) || \
++	    !strncmp(x, "Enable", 6) || !strncmp(x, "1", 1) )
++
++#define CPLD_FAN_DISABLE_STR(x) \
++	if( !strncmp(x, "off", 3) || !strncmp(x, "OFF", 3) || \
++	    !strncmp(x, "disable", 7) || !strncmp(x, "DISABLE", 7) || \
++	    !strncmp(x, "Disable", 7) || !strncmp(x, "0", 1) )
++
++struct ec_fan_cpld_data {
++	struct device *hwmon_dev;
++	struct i2c_client *client;
++	struct mutex update_lock;
++
++	char valid;                     /* !=0 if following fields are valid */
++	unsigned long last_updated;     /* In jiffies */
++
++	/* fans */
++	u8 fan[NUMBER_OF_FANIN];        /* Register value */
++	u8 fan_min[NUMBER_OF_FANIN];    /* Register value */
++	u8 fan_div[NUMBER_OF_FANIN];    /* Register encoding, shifted right */
++
++	/* PWMs */
++	u8 pwm[NUMBER_OF_FANIN];              /* pwm duty cycle */
++
++	/* Misc */
++	u32 alarms;             /* realtime status register encoding,combined */
++	u8 vid;                 /* Register encoding, combined */
++	u8 vrm;                 /* hwmon-vid */
++};
++
++const int Front_target_table[16] = {
++	1200, 1200, 1200, 1200, 1200, 1200, 1200, 1200,
++	1200, 1200, 1200, 1200, 1200, 1200, 1200, 1200
++};
++
++const int Rear_target_table[16] = {
++	1200, 1200, 1200, 1200, 1200, 1200, 1200, 1200,
++	1200, 1200, 1200, 1200, 1200, 1200, 1200, 1200
++};
++
++/* read BD Information */
++static ssize_t show_cpld_bd(struct device *dev, struct device_attribute *attr,
++                       char *buf)
++{
++	struct ec_fan_cpld_data *data = dev_get_drvdata(dev);
++       struct i2c_client *client = data->client;
++	s32 value = i2c_smbus_read_byte_data(client, CPLD_FAN_I2C_REG_BD_INFO);
++
++       return sprintf(buf, "Board_ID[3:0]: 0x%02x\nVersion_ID[7:4]: 0x%02x\n", value & 0xf, (value >> 4) & 0xf);
++}
++
++/* read CPLD version */
++static ssize_t show_cpld_version(struct device *dev, struct device_attribute *attr,
++                       char *buf)
++{
++	struct ec_fan_cpld_data *data = dev_get_drvdata(dev);
++       struct i2c_client *client = data->client;
++	s32 value = i2c_smbus_read_byte_data(client, CPLD_FAN_I2C_REG_CPLD_VERSION);
++
++       return sprintf(buf, "CPLD_ver[3:0]: 0x%02x\nReleased Bit[7]: %s\n", value & 0xf, (
++			value >> 7) ? "Released version after PVT" : "not released");
++}
++
++/* do reset action */
++static ssize_t store_reset(struct device *dev, struct device_attribute *attr,
++                       const char *buf, size_t count)
++{
++       struct ec_fan_cpld_data *data = dev_get_drvdata(dev);
++       struct i2c_client *client = data->client;
++       s32 value = i2c_smbus_read_byte_data(client, CPLD_FAN_I2C_REG_RESET);
++
++	CPLD_FAN_DISABLE_STR(buf){
++		value &= ~CPLD_FAN_REG_RESET_BIT;
++		mutex_lock(&data->update_lock);
++		i2c_smbus_write_byte_data(client, CPLD_FAN_I2C_REG_RESET, value);
++		mutex_unlock(&data->update_lock);
++	}
++	return count;
++}
++
++/* read JTAG Selection */
++static ssize_t show_jtag_selection(struct device *dev, struct device_attribute *attr,
++			char *buf)
++{
++	struct ec_fan_cpld_data *data = dev_get_drvdata(dev);
++	struct i2c_client *client = data->client;
++	struct sensor_device_attribute *sensor_attr = to_sensor_dev_attr(attr);
++	int nr = sensor_attr->index;
++	s32 value = i2c_smbus_read_byte_data(client, CPLD_FAN_I2C_REG_MISC_1);
++
++	return sprintf(buf, "%s\n", (value & CPLD_FAN_REG_JTAG_BIT) ? "JTAG program" : "main board program");
++}
++
++/* write JTAG Selection */
++static ssize_t store_jtag_selection(struct device *dev, struct device_attribute *attr,
++		const char *buf, size_t count)
++{
++	struct ec_fan_cpld_data *data = dev_get_drvdata(dev);
++	struct i2c_client *client = data->client;
++	int onoff = 1;
++	unsigned long value = i2c_smbus_read_byte_data(client, CPLD_FAN_I2C_REG_MISC_1);
++
++	CPLD_FAN_ENABLE_STR(buf)
++		onoff = 1;
++	else CPLD_FAN_DISABLE_STR(buf)
++		onoff = 0;
++	else
++		return -EINVAL;
++
++	if( (onoff && (value & CPLD_FAN_REG_JTAG_BIT) ) ||
++	    (!onoff && !(value & CPLD_FAN_REG_JTAG_BIT) ) )
++		return 0;
++
++	if( onoff )
++		value |= CPLD_FAN_REG_JTAG_BIT;
++	else
++		value &= ~CPLD_FAN_REG_JTAG_BIT;
++
++	mutex_lock(&data->update_lock);
++	i2c_smbus_write_byte_data(client, CPLD_FAN_I2C_REG_MISC_1, value);
++	mutex_unlock(&data->update_lock);
++
++	return count;
++}
++
++/* read Clock Selection */
++static ssize_t show_clock_selection(struct device *dev, struct device_attribute *attr,
++			char *buf)
++{
++	struct ec_fan_cpld_data *data = dev_get_drvdata(dev);
++	struct i2c_client *client = data->client;
++	struct sensor_device_attribute *sensor_attr = to_sensor_dev_attr(attr);
++	int nr = sensor_attr->index;
++	s32 value = i2c_smbus_read_byte_data(client, CPLD_FAN_I2C_REG_MISC_1);
++
++	return sprintf(buf, "%s\n", (value & CPLD_FAN_REG_CLOCK_SEL_BIT) ? "external  25MHz" : "cpld internal 24.7MHz");
++}
++
++/* write Clock Selection */
++static ssize_t store_clock_selection(struct device *dev, struct device_attribute *attr,
++		const char *buf, size_t count)
++{
++	struct ec_fan_cpld_data *data = dev_get_drvdata(dev);
++	struct i2c_client *client = data->client;
++	int onoff = 1;
++	unsigned long value = i2c_smbus_read_byte_data(client, CPLD_FAN_I2C_REG_MISC_1);
++
++	CPLD_FAN_ENABLE_STR(buf)
++		onoff = 1;
++	else CPLD_FAN_DISABLE_STR(buf)
++		onoff = 0;
++	else
++		return -EINVAL;
++
++	if( (onoff && (value & CPLD_FAN_REG_CLOCK_SEL_BIT) ) ||
++	    (!onoff && !(value & CPLD_FAN_REG_CLOCK_SEL_BIT) ) )
++		return 0;
++
++	if( onoff )
++		value |= CPLD_FAN_REG_CLOCK_SEL_BIT;
++	else
++		value &= ~CPLD_FAN_REG_CLOCK_SEL_BIT;
++
++	mutex_lock(&data->update_lock);
++	i2c_smbus_write_byte_data(client, CPLD_FAN_I2C_REG_MISC_1, value);
++	mutex_unlock(&data->update_lock);
++
++	return count;
++}
++
++/* read FAN present */
++static ssize_t show_fan_present(struct device *dev, struct device_attribute *attr,
++			char *buf)
++{
++	struct ec_fan_cpld_data *data = dev_get_drvdata(dev);
++	struct i2c_client *client = data->client;
++	struct sensor_device_attribute *sensor_attr = to_sensor_dev_attr(attr);
++	int nr = sensor_attr->index;
++	s32 value = i2c_smbus_read_byte_data(client, CPLD_FAN_I2C_REG_PRESENT);
++
++	return sprintf(buf, "%d\n", (value & CPLD_FAN_REG_FANTRAY_BIT(nr)) ? 1 : 0);
++}
++
++/* read FAN direction */
++static ssize_t show_fan_dir(struct device *dev, struct device_attribute *attr,
++			char *buf)
++{
++	struct ec_fan_cpld_data *data = dev_get_drvdata(dev);
++	struct i2c_client *client = data->client;
++	struct sensor_device_attribute *sensor_attr = to_sensor_dev_attr(attr);
++	int nr = sensor_attr->index;
++	s32 value = i2c_smbus_read_byte_data(client, CPLD_FAN_I2C_REG_DIRECTION);
++
++	return sprintf(buf, "%d\nFan%d %s\n", (value & CPLD_FAN_REG_FANTRAY_BIT(nr)) ? 1 : 0,
++			nr+1, (value & CPLD_FAN_REG_FANTRAY_BIT(nr)) ? "back to front" : "front to back");
++}
++
++/* read FAN green led */
++static ssize_t show_fan_display_led(struct device *dev, struct device_attribute *attr,
++			char *buf)
++{
++	struct ec_fan_cpld_data *data = dev_get_drvdata(dev);
++	struct i2c_client *client = data->client;
++	struct sensor_device_attribute *sensor_attr = to_sensor_dev_attr(attr);
++	int nr = sensor_attr->index;
++	char led_str[12];
++	s32 value_g = i2c_smbus_read_byte_data(client, CPLD_FAN_I2C_REG_LED_GREEN);
++	s32 value_r = i2c_smbus_read_byte_data(client, CPLD_FAN_I2C_REG_LED_RED);
++
++	if( value_g & CPLD_FAN_REG_FANTRAY_BIT(nr) ){
++		if( value_r & CPLD_FAN_REG_FANTRAY_BIT(nr) ){
++			strcpy(led_str, "Amber");
++		}
++		else{
++			strcpy(led_str, "Green");
++		}
++	}
++	else if( value_r & CPLD_FAN_REG_FANTRAY_BIT(nr) ){
++		strcpy(led_str, "Red");
++	}
++	else{
++		strcpy(led_str, "none");
++	}
++	return sprintf(buf, "%s\n", led_str);
++}
++
++/* read FAN WDT enable */
++static ssize_t show_fan_wdt_enable(struct device *dev, struct device_attribute *attr,
++			char *buf)
++{
++	struct ec_fan_cpld_data *data = dev_get_drvdata(dev);
++	struct i2c_client *client = data->client;
++	struct sensor_device_attribute *sensor_attr = to_sensor_dev_attr(attr);
++	int nr = sensor_attr->index;
++	s32 value = i2c_smbus_read_byte_data(client, CPLD_FAN_I2C_REG_WATCHDOG_ENB);
++
++	return sprintf(buf, "%s\n", (value & CPLD_FAN_REG_WDT_EN_BIT) ? "enabled" : "disabled");
++}
++
++/* write FAN WDT enable */
++static ssize_t store_fan_wdt_enable(struct device *dev, struct device_attribute *attr,
++		const char *buf, size_t count)
++{
++	struct ec_fan_cpld_data *data = dev_get_drvdata(dev);
++	struct i2c_client *client = data->client;
++	int onoff = 1;
++	unsigned long value = i2c_smbus_read_byte_data(client, CPLD_FAN_I2C_REG_WATCHDOG_ENB);
++
++	CPLD_FAN_ENABLE_STR(buf)
++		onoff = 1;
++	else CPLD_FAN_DISABLE_STR(buf)
++		onoff = 0;
++	else
++		return -EINVAL;
++
++	if( (onoff && (value & CPLD_FAN_REG_WDT_EN_BIT) ) ||
++	    (!onoff && !(value & CPLD_FAN_REG_WDT_EN_BIT) ) )
++		return 0;
++
++	if( onoff )
++		value |= CPLD_FAN_REG_WDT_EN_BIT;
++	else
++		value &= ~CPLD_FAN_REG_WDT_EN_BIT;
++
++	mutex_lock(&data->update_lock);
++	i2c_smbus_write_byte_data(client, CPLD_FAN_I2C_REG_WATCHDOG_ENB, value);
++	mutex_unlock(&data->update_lock);
++
++	return count;
++}
++
++/* read FAN WDT update */
++static ssize_t show_fan_wdt_update(struct device *dev, struct device_attribute *attr,
++			char *buf)
++{
++	struct ec_fan_cpld_data *data = dev_get_drvdata(dev);
++	struct i2c_client *client = data->client;
++	struct sensor_device_attribute *sensor_attr = to_sensor_dev_attr(attr);
++	int nr = sensor_attr->index;
++	s32 value = i2c_smbus_read_byte_data(client, CPLD_FAN_I2C_REG_WATCHDOG_ENB);
++
++	return sprintf(buf, "%s\n", (value & CPLD_FAN_REG_WDT_UPD_BIT) ? "updated" : "level 1");
++}
++
++/* write FAN WDT update */
++static ssize_t store_fan_wdt_update(struct device *dev, struct device_attribute *attr,
++		const char *buf, size_t count)
++{
++	struct ec_fan_cpld_data *data = dev_get_drvdata(dev);
++	struct i2c_client *client = data->client;
++	int onoff = 1;
++	unsigned long value = i2c_smbus_read_byte_data(client, CPLD_FAN_I2C_REG_WATCHDOG_ENB);
++
++	CPLD_FAN_ENABLE_STR(buf)
++		onoff = 1;
++	else CPLD_FAN_DISABLE_STR(buf)
++		onoff = 0;
++	else
++		return -EINVAL;
++
++	if( (onoff && (value & CPLD_FAN_REG_WDT_UPD_BIT) ) ||
++	    (!onoff && !(value & CPLD_FAN_REG_WDT_UPD_BIT) ) )
++		return 0;
++
++	if( onoff )
++		value |= CPLD_FAN_REG_WDT_UPD_BIT;
++	else
++		value &= ~CPLD_FAN_REG_WDT_UPD_BIT;
++
++	mutex_lock(&data->update_lock);
++	i2c_smbus_write_byte_data(client, CPLD_FAN_I2C_REG_WATCHDOG_ENB, value);
++	mutex_unlock(&data->update_lock);
++
++	return count;
++}
++
++/* read FAN WDT timer value */
++static ssize_t show_fan_wdt_tmr_val(struct device *dev, struct device_attribute *attr,
++			char *buf)
++{
++	struct ec_fan_cpld_data *data = dev_get_drvdata(dev);
++	struct i2c_client *client = data->client;
++	struct sensor_device_attribute *sensor_attr = to_sensor_dev_attr(attr);
++	int nr = sensor_attr->index;
++	s32 value = i2c_smbus_read_byte_data(client, CPLD_FAN_I2C_REG_WATCHDOG_TMR_VAL);
++
++	return sprintf(buf, "%d\n", value);
++}
++
++/* write FAN WDT timer value */
++static ssize_t store_fan_wdt_tmr_val(struct device *dev, struct device_attribute *attr,
++		const char *buf, size_t count)
++{
++	struct ec_fan_cpld_data *data = dev_get_drvdata(dev);
++	struct i2c_client *client = data->client;
++	unsigned long value;
++
++	if (kstrtoul(buf, 10, &value))
++		return -EINVAL;
++
++	if (value >= 256 )
++		return -EINVAL;
++
++	mutex_lock(&data->update_lock);
++	i2c_smbus_write_byte_data(client, CPLD_FAN_I2C_REG_WATCHDOG_TMR_VAL, value);
++	mutex_unlock(&data->update_lock);
++
++	return count;
++}
++
++/* read FAN WDT Trigger */
++static ssize_t show_fan_wdt_trigger(struct device *dev, struct device_attribute *attr,
++			char *buf)
++{
++	struct ec_fan_cpld_data *data = dev_get_drvdata(dev);
++	struct i2c_client *client = data->client;
++	struct sensor_device_attribute *sensor_attr = to_sensor_dev_attr(attr);
++	int nr = sensor_attr->index;
++	s32 value = i2c_smbus_read_byte_data(client, CPLD_FAN_I2C_REG_WATCHDOG_TRIGGER);
++
++	return sprintf(buf, "%s\n", (value & CPLD_FAN_REG_WDT_TRIG_BIT) ? "enabled" : "disabled");
++}
++
++/* write FAN WDT Trigger */
++static ssize_t store_fan_wdt_trigger(struct device *dev, struct device_attribute *attr,
++		const char *buf, size_t count)
++{
++	struct ec_fan_cpld_data *data = dev_get_drvdata(dev);
++	struct i2c_client *client = data->client;
++	int onoff = 1;
++	unsigned long value = i2c_smbus_read_byte_data(client, CPLD_FAN_I2C_REG_WATCHDOG_TRIGGER);
++
++	CPLD_FAN_ENABLE_STR(buf)
++		onoff = 1;
++	else CPLD_FAN_DISABLE_STR(buf)
++		onoff = 0;
++	else
++		return -EINVAL;
++
++	if( (onoff && (value & CPLD_FAN_REG_WDT_TRIG_BIT) ) ||
++	    (!onoff && !(value & CPLD_FAN_REG_WDT_TRIG_BIT) ) )
++		return 0;
++
++	if( onoff )
++		value |= CPLD_FAN_REG_WDT_TRIG_BIT;
++	else
++		value &= ~CPLD_FAN_REG_WDT_TRIG_BIT;
++
++	mutex_lock(&data->update_lock);
++	i2c_smbus_write_byte_data(client, CPLD_FAN_I2C_REG_WATCHDOG_TRIGGER, value);
++	mutex_unlock(&data->update_lock);
++
++	return count;
++}
++
++/* read FAN WDT timeout flag */
++static ssize_t show_fan_wdt_timeout_flag(struct device *dev, struct device_attribute *attr,
++			char *buf)
++{
++	struct ec_fan_cpld_data *data = dev_get_drvdata(dev);
++	struct i2c_client *client = data->client;
++	struct sensor_device_attribute *sensor_attr = to_sensor_dev_attr(attr);
++	int nr = sensor_attr->index;
++	s32 value = i2c_smbus_read_byte_data(client, CPLD_FAN_I2C_REG_WATCHDOG_TRIGGER);
++
++	return sprintf(buf, "%s\n", (value & CPLD_FAN_REG_WDT_TIMEOUT_BIT) ? "timeout" : "not timeout");
++}
++
++/* read temperature intr. mask */
++static ssize_t show_temp_int_mask(struct device *dev, struct device_attribute *attr,
++			char *buf)
++{
++	struct ec_fan_cpld_data *data = dev_get_drvdata(dev);
++	struct i2c_client *client = data->client;
++	struct sensor_device_attribute *sensor_attr = to_sensor_dev_attr(attr);
++	int nr = sensor_attr->index;
++	s32 value = i2c_smbus_read_byte_data(client, CPLD_FAN_I2C_REG_INTERRUPT_MASK);
++
++	return sprintf(buf, "%s\n", (value & CPLD_FAN_REG_TEMP_INTR_BIT(nr)) ? "Block intr." : "intr. to CPU");
++}
++
++/* write temperature intr. mask */
++static ssize_t store_temp_int_mask(struct device *dev, struct device_attribute *attr,
++		const char *buf, size_t count)
++{
++	struct ec_fan_cpld_data *data = dev_get_drvdata(dev);
++	struct i2c_client *client = data->client;
++	int onoff = 1;
++	struct sensor_device_attribute *sensor_attr = to_sensor_dev_attr(attr);
++	int nr = sensor_attr->index;
++	unsigned long value = i2c_smbus_read_byte_data(client, CPLD_FAN_I2C_REG_INTERRUPT_MASK);
++
++	CPLD_FAN_ENABLE_STR(buf)
++		onoff = 1;
++	else CPLD_FAN_DISABLE_STR(buf)
++		onoff = 0;
++	else
++		return -EINVAL;
++
++	if( (onoff && (value & CPLD_FAN_REG_TEMP_INTR_BIT(nr)) ) ||
++	    (!onoff && !(value & CPLD_FAN_REG_TEMP_INTR_BIT(nr)) ) )
++		return 0;
++
++	if( onoff )
++		value |= CPLD_FAN_REG_TEMP_INTR_BIT(nr);
++	else
++		value &= ~CPLD_FAN_REG_TEMP_INTR_BIT(nr);
++
++	mutex_lock(&data->update_lock);
++	i2c_smbus_write_byte_data(client, CPLD_FAN_I2C_REG_INTERRUPT_MASK, value);
++	mutex_unlock(&data->update_lock);
++
++	return count;
++}
++
++/* read fantray intr. mask */
++static ssize_t show_fan_int_mask(struct device *dev, struct device_attribute *attr,
++			char *buf)
++{
++	struct ec_fan_cpld_data *data = dev_get_drvdata(dev);
++	struct i2c_client *client = data->client;
++	struct sensor_device_attribute *sensor_attr = to_sensor_dev_attr(attr);
++	int nr = sensor_attr->index;
++	s32 value = i2c_smbus_read_byte_data(client, CPLD_FAN_I2C_REG_INTERRUPT_MASK);
++
++	return sprintf(buf, "%s\n", (value & CPLD_FAN_REG_FAN_INTR_BIT(nr)) ? "Block intr." : "intr. to CPU");
++}
++
++/* write fantray intr. mask */
++static ssize_t store_fan_int_mask(struct device *dev, struct device_attribute *attr,
++		const char *buf, size_t count)
++{
++	struct ec_fan_cpld_data *data = dev_get_drvdata(dev);
++	struct i2c_client *client = data->client;
++	int onoff = 1;
++	struct sensor_device_attribute *sensor_attr = to_sensor_dev_attr(attr);
++	int nr = sensor_attr->index;
++	unsigned long value = i2c_smbus_read_byte_data(client, CPLD_FAN_I2C_REG_INTERRUPT_MASK);
++
++	CPLD_FAN_ENABLE_STR(buf)
++		onoff = 1;
++	else CPLD_FAN_DISABLE_STR(buf)
++		onoff = 0;
++	else
++		return -EINVAL;
++
++	if( (onoff && (value & CPLD_FAN_REG_FAN_INTR_BIT(nr)) ) ||
++	    (!onoff && !(value & CPLD_FAN_REG_FAN_INTR_BIT(nr)) ) )
++		return 0;
++
++	if( onoff )
++		value |= CPLD_FAN_REG_FAN_INTR_BIT(nr);
++	else
++		value &= ~CPLD_FAN_REG_FAN_INTR_BIT(nr);
++
++	mutex_lock(&data->update_lock);
++	i2c_smbus_write_byte_data(client, CPLD_FAN_I2C_REG_INTERRUPT_MASK, value);
++	mutex_unlock(&data->update_lock);
++
++	return count;
++}
++
++/* read temperature intr. status */
++static ssize_t show_temp_int_status(struct device *dev, struct device_attribute *attr,
++			char *buf)
++{
++	struct ec_fan_cpld_data *data = dev_get_drvdata(dev);
++	struct i2c_client *client = data->client;
++	struct sensor_device_attribute *sensor_attr = to_sensor_dev_attr(attr);
++	int nr = sensor_attr->index;
++	s32 value = i2c_smbus_read_byte_data(client, CPLD_FAN_I2C_REG_INTERRUPT_STATUS);
++
++	return sprintf(buf, "%s\n", (value & CPLD_FAN_REG_TEMP_INTR_BIT(nr)) ? "No intr." : "intr. to CPU");
++}
++
++/* read fatray intr. status */
++static ssize_t show_fan_int_status(struct device *dev, struct device_attribute *attr,
++			char *buf)
++{
++	struct ec_fan_cpld_data *data = dev_get_drvdata(dev);
++	struct i2c_client *client = data->client;
++	struct sensor_device_attribute *sensor_attr = to_sensor_dev_attr(attr);
++	int nr = sensor_attr->index;
++	s32 value = i2c_smbus_read_byte_data(client, CPLD_FAN_I2C_REG_INTERRUPT_STATUS);
++
++	return sprintf(buf, "%s\n", (value & CPLD_FAN_REG_FAN_INTR_BIT(nr)) ? "No intr." : "intr. to CPU");
++}
++
++/* read fantray power enable */
++static ssize_t show_power_enable(struct device *dev, struct device_attribute *attr,
++			char *buf)
++{
++	struct ec_fan_cpld_data *data = dev_get_drvdata(dev);
++	struct i2c_client *client = data->client;
++	struct sensor_device_attribute *sensor_attr = to_sensor_dev_attr(attr);
++	int nr = sensor_attr->index;
++	s32 value = i2c_smbus_read_byte_data(client, CPLD_FAN_I2C_REG_POWER_ENB);
++
++	return sprintf(buf, "%s\n", (value & CPLD_FAN_REG_FAN_INTR_BIT(nr)) ? "Enable" : "Disable");
++}
++
++/* write fantray power enable */
++static ssize_t store_power_enable(struct device *dev, struct device_attribute *attr,
++		const char *buf, size_t count)
++{
++	struct ec_fan_cpld_data *data = dev_get_drvdata(dev);
++	struct i2c_client *client = data->client;
++	int onoff = 1;
++	struct sensor_device_attribute *sensor_attr = to_sensor_dev_attr(attr);
++	int nr = sensor_attr->index;
++	unsigned long value = i2c_smbus_read_byte_data(client, CPLD_FAN_I2C_REG_POWER_ENB);
++
++	CPLD_FAN_ENABLE_STR(buf)
++		onoff = 1;
++	else CPLD_FAN_DISABLE_STR(buf)
++		onoff = 0;
++	else
++		return -EINVAL;
++
++	if( (onoff && (value & CPLD_FAN_REG_FAN_INTR_BIT(nr)) ) ||
++	    (!onoff && !(value & CPLD_FAN_REG_FAN_INTR_BIT(nr)) ) )
++		return 0;
++
++	if( onoff )
++		value |= CPLD_FAN_REG_FAN_INTR_BIT(nr);
++	else
++		value &= ~CPLD_FAN_REG_FAN_INTR_BIT(nr);
++
++	mutex_lock(&data->update_lock);
++	i2c_smbus_write_byte_data(client, CPLD_FAN_I2C_REG_POWER_ENB, value);
++	mutex_unlock(&data->update_lock);
++
++	return count;
++}
++
++/* read FAN PWM (duty cycle) value */
++static ssize_t show_duty_cycle(struct device *dev, struct device_attribute *attr,
++			char *buf)
++{
++	struct ec_fan_cpld_data *data = dev_get_drvdata(dev);
++	struct i2c_client *client = data->client;
++	struct sensor_device_attribute *sensor_attr = to_sensor_dev_attr(attr);
++	s32 value = i2c_smbus_read_byte_data(client, CPLD_FAN_I2C_REG_PWM);
++	int duty_cyc = value & 0xf, ret = 0;
++
++	switch( duty_cyc ){
++	case 0:
++		ret = sprintf(buf, "0\n");
++		break;
++	case 1:
++		ret = sprintf(buf, "17.6\n");
++		break;
++	case 2:
++		ret = sprintf(buf, "23.6\n");
++		break;
++	case 3:
++		ret = sprintf(buf, "29.4\n");
++		break;
++	case 4:
++		ret = sprintf(buf, "35.3\n");
++		break;
++	case 5:
++		ret = sprintf(buf, "41.2\n");
++		break;
++	case 6:
++		ret = sprintf(buf, "47.0\n");
++		break;
++	case 7:
++		ret = sprintf(buf, "52.9\n");
++		break;
++	case 8:
++		ret = sprintf(buf, "58.8\n");
++		break;
++	case 9:
++		ret = sprintf(buf, "64.7\n");
++		break;
++	case 10:
++		ret = sprintf(buf, "70.6\n");
++		break;
++	case 11:
++		ret = sprintf(buf, "76.5\n");
++		break;
++	case 12:
++		ret = sprintf(buf, "82.3\n");
++		break;
++	case 13:
++		ret = sprintf(buf, "88.2\n");
++		break;
++	case 14:
++		ret = sprintf(buf, "94.1\n");
++		break;
++	case 15:
++		ret = sprintf(buf, "100\n");
++		break;
++	}
++	return ret;
++}
++
++/* write PWM (duty cycle) */
++static ssize_t store_duty_cycle(struct device *dev, struct device_attribute *attr,
++		const char *buf, size_t count)
++{
++	struct ec_fan_cpld_data *data = dev_get_drvdata(dev);
++	struct i2c_client *client = data->client;
++	unsigned long value = i2c_smbus_read_byte_data(client, CPLD_FAN_I2C_REG_PWM);
++	unsigned long duty_cyc;
++	int pwm;
++	value &= 0xf0;
++
++	if (kstrtoul(buf, 10, &duty_cyc))
++		return -EINVAL;
++
++	if (duty_cyc > 100 )
++		return -EINVAL;
++
++	if( duty_cyc <= 8 )
++		pwm = 0;
++	else if( duty_cyc <= 17 )
++		pwm = 1;
++	else if( duty_cyc <= 23 )
++		pwm = 2;
++	else if( duty_cyc <= 29 )
++		pwm = 3;
++	else if( duty_cyc <= 35 )
++		pwm = 4;
++	else if( duty_cyc <= 41 )
++		pwm = 5;
++	else if( duty_cyc <= 47 )
++		pwm = 6;
++	else if( duty_cyc <= 53 )
++		pwm = 7;
++	else if( duty_cyc <= 59 )
++		pwm = 8;
++	else if( duty_cyc <= 64 )
++		pwm = 9;
++	else if( duty_cyc <= 70 )
++		pwm = 10;
++	else if( duty_cyc <= 76 )
++		pwm = 11;
++	else if( duty_cyc <= 82 )
++		pwm = 12;
++	else if( duty_cyc <= 88 )
++		pwm = 13;
++	else if( duty_cyc <= 94 )
++		pwm = 14;
++	else
++		pwm = 15;
++
++	value |= pwm;
++	mutex_lock(&data->update_lock);
++	i2c_smbus_write_byte_data(client, CPLD_FAN_I2C_REG_PWM, value);
++	mutex_unlock(&data->update_lock);
++
++	return count;
++}
++
++/* read CLOCK Devide PWM value */
++static ssize_t show_clk_div_pwm(struct device *dev, struct device_attribute *attr,
++			char *buf)
++{
++	struct ec_fan_cpld_data *data = dev_get_drvdata(dev);
++	struct i2c_client *client = data->client;
++	struct sensor_device_attribute *sensor_attr = to_sensor_dev_attr(attr);
++	s32 value = i2c_smbus_read_byte_data(client, CPLD_FAN_I2C_REG_PWM_CLK_DIV);
++	int clk_div = value & 0xf, ret = 0;
++
++	switch( clk_div ){
++	case 0:
++		ret = sprintf(buf, "%d (735.3 K)\n", clk_div);
++		break;
++	case 1:
++		ret = sprintf(buf, "%d (367.6 K)\n", clk_div);
++		break;
++	case 2:
++		ret = sprintf(buf, "%d (183.8 K)\n", clk_div);
++		break;
++	case 3:
++		ret = sprintf(buf, "%d (91.9 K)\n", clk_div);
++		break;
++	case 4:
++		ret = sprintf(buf, "%d (46.0 K)\n", clk_div);
++		break;
++	case 5:
++		ret = sprintf(buf, "%d (23.0 K)\n", clk_div);
++		break;
++	case 6:
++		ret = sprintf(buf, "%d (11.5 K)\n", clk_div);
++		break;
++	case 7:
++		ret = sprintf(buf, "%d (5.7 K)\n", clk_div);
++		break;
++	case 8:
++		ret = sprintf(buf, "%d (2.9 K)\n", clk_div);
++		break;
++	case 9:
++		ret = sprintf(buf, "%d (1.4 K)\n", clk_div);
++		break;
++	case 10:
++		ret = sprintf(buf, "%d (718)\n", clk_div);
++		break;
++	case 11:
++		ret = sprintf(buf, "%d (359.0)\n", clk_div);
++		break;
++	case 12:
++		ret = sprintf(buf, "%d (179.5)\n", clk_div);
++		break;
++	case 13:
++		ret = sprintf(buf, "%d (89.8)\n", clk_div);
++		break;
++	case 14:
++		ret = sprintf(buf, "%d (44.9)\n", clk_div);
++		break;
++	case 15:
++		ret = sprintf(buf, "%d (22.4)\n", clk_div);
++		break;
++	}
++	return ret;
++}
++
++/* write CLOCK Devide PWM value */
++static ssize_t store_clk_div_pwm(struct device *dev, struct device_attribute *attr,
++		const char *buf, size_t count)
++{
++	struct ec_fan_cpld_data *data = dev_get_drvdata(dev);
++	struct i2c_client *client = data->client;
++	unsigned long value = i2c_smbus_read_byte_data(client, CPLD_FAN_I2C_REG_PWM_CLK_DIV);
++	unsigned long clk_div;
++	value &= 0xf0;
++
++	if (kstrtoul(buf, 10, &clk_div))
++		return -EINVAL;
++
++	if (clk_div > 15 )
++		return -EINVAL;
++
++	value |= clk_div;
++	mutex_lock(&data->update_lock);
++	i2c_smbus_write_byte_data(client, CPLD_FAN_I2C_REG_PWM_CLK_DIV, value);
++	mutex_unlock(&data->update_lock);
++
++	return count;
++}
++
++/* read CLOCK Devide TACH value */
++static ssize_t show_clk_div_tach(struct device *dev, struct device_attribute *attr,
++			char *buf)
++{
++	struct ec_fan_cpld_data *data = dev_get_drvdata(dev);
++	struct i2c_client *client = data->client;
++	struct sensor_device_attribute *sensor_attr = to_sensor_dev_attr(attr);
++	s32 value = i2c_smbus_read_byte_data(client, CPLD_FAN_I2C_REG_TACH_CLK_DIV);
++	int clk_div = value & 0xf, ret = 0;
++
++	switch( clk_div ){
++	case 0:
++		ret = sprintf(buf, "%d (12.5 M)\n", clk_div);
++		break;
++	case 1:
++		ret = sprintf(buf, "%d (6.25 M)\n", clk_div);
++		break;
++	case 2:
++		ret = sprintf(buf, "%d (3.125 M)\n", clk_div);
++		break;
++	case 3:
++		ret = sprintf(buf, "%d (1.563 M)\n", clk_div);
++		break;
++	case 4:
++		ret = sprintf(buf, "%d (781.25 K)\n", clk_div);
++		break;
++	case 5:
++		ret = sprintf(buf, "%d (390 K)\n", clk_div);
++		break;
++	case 6:
++		ret = sprintf(buf, "%d (195.313 K)\n", clk_div);
++		break;
++	case 7:
++		ret = sprintf(buf, "%d (97.656 K)\n", clk_div);
++		break;
++	case 8:
++		ret = sprintf(buf, "%d (48.84 K)\n", clk_div);
++		break;
++	case 9:
++		ret = sprintf(buf, "%d (24.414 K)\n", clk_div);
++		break;
++	case 10:
++		ret = sprintf(buf, "%d (12.207 K)\n", clk_div);
++		break;
++	case 11:
++		ret = sprintf(buf, "%d (6.104 K)\n", clk_div);
++		break;
++	case 12:
++		ret = sprintf(buf, "%d (3.052 K)\n", clk_div);
++		break;
++	case 13:
++		ret = sprintf(buf, "%d (1.526 K)\n", clk_div);
++		break;
++	case 14:
++		ret = sprintf(buf, "%d (763.94)\n", clk_div);
++		break;
++	case 15:
++		ret = sprintf(buf, "%d (381.472)\n", clk_div);
++		break;
++	}
++	return ret;
++}
++
++/* write CLOCK Devide TACH value */
++static ssize_t store_clk_div_tach(struct device *dev, struct device_attribute *attr,
++		const char *buf, size_t count)
++{
++	struct ec_fan_cpld_data *data = dev_get_drvdata(dev);
++	struct i2c_client *client = data->client;
++	unsigned long value = i2c_smbus_read_byte_data(client, CPLD_FAN_I2C_REG_TACH_CLK_DIV);
++	unsigned long clk_div;
++	value &= 0xf0;
++
++	if (kstrtoul(buf, 10, &clk_div))
++		return -EINVAL;
++
++	if (clk_div > 15 )
++		return -EINVAL;
++
++	value |= clk_div;
++	mutex_lock(&data->update_lock);
++	i2c_smbus_write_byte_data(client, CPLD_FAN_I2C_REG_TACH_CLK_DIV, value);
++	mutex_unlock(&data->update_lock);
++
++	return count;
++}
++
++/* read front min speed */
++static ssize_t show_front_min(struct device *dev, struct device_attribute *attr,
++			char *buf)
++{
++	struct ec_fan_cpld_data *data = dev_get_drvdata(dev);
++	struct i2c_client *client = data->client;
++	struct sensor_device_attribute *sensor_attr = to_sensor_dev_attr(attr);
++	int nr = sensor_attr->index;
++	s32 value = i2c_smbus_read_byte_data(client, CPLD_FAN_I2C_REG_FRONT_MIN);
++
++	return sprintf(buf, "%d\n", value * 100);
++}
++
++/* write front min speed */
++static ssize_t store_front_min(struct device *dev, struct device_attribute *attr,
++		const char *buf, size_t count)
++{
++	struct ec_fan_cpld_data *data = dev_get_drvdata(dev);
++	struct i2c_client *client = data->client;
++	unsigned long value;
++
++	if (kstrtoul(buf, 10, &value))
++		return -EINVAL;
++
++	if (value >= 25600 )
++		return -EINVAL;
++
++	value /= 100;
++	mutex_lock(&data->update_lock);
++	i2c_smbus_write_byte_data(client, CPLD_FAN_I2C_REG_FRONT_MIN, value);
++	mutex_unlock(&data->update_lock);
++
++	return count;
++}
++
++/* read front max speed */
++static ssize_t show_front_max(struct device *dev, struct device_attribute *attr,
++			char *buf)
++{
++	struct ec_fan_cpld_data *data = dev_get_drvdata(dev);
++	struct i2c_client *client = data->client;
++	struct sensor_device_attribute *sensor_attr = to_sensor_dev_attr(attr);
++	int nr = sensor_attr->index;
++	s32 value = i2c_smbus_read_byte_data(client, CPLD_FAN_I2C_REG_FRONT_MAX);
++
++	return sprintf(buf, "%d\n", value * 100);
++}
++
++/* write front max speed */
++static ssize_t store_front_max(struct device *dev, struct device_attribute *attr,
++		const char *buf, size_t count)
++{
++	struct ec_fan_cpld_data *data = dev_get_drvdata(dev);
++	struct i2c_client *client = data->client;
++	unsigned long value;
++
++	if (kstrtoul(buf, 10, &value))
++		return -EINVAL;
++
++	if (value >= 25600 )
++		return -EINVAL;
++
++	value /= 100;
++	mutex_lock(&data->update_lock);
++	i2c_smbus_write_byte_data(client, CPLD_FAN_I2C_REG_FRONT_MAX, value);
++	mutex_unlock(&data->update_lock);
++
++	return count;
++}
++
++/* read rear min speed */
++static ssize_t show_rear_min(struct device *dev, struct device_attribute *attr,
++			char *buf)
++{
++	struct ec_fan_cpld_data *data = dev_get_drvdata(dev);
++	struct i2c_client *client = data->client;
++	struct sensor_device_attribute *sensor_attr = to_sensor_dev_attr(attr);
++	int nr = sensor_attr->index;
++	s32 value = i2c_smbus_read_byte_data(client, CPLD_FAN_I2C_REG_REAR_MIN);
++
++	return sprintf(buf, "%d\n", value * 100);
++}
++
++/* write rear min speed */
++static ssize_t store_rear_min(struct device *dev, struct device_attribute *attr,
++		const char *buf, size_t count)
++{
++	struct ec_fan_cpld_data *data = dev_get_drvdata(dev);
++	struct i2c_client *client = data->client;
++	unsigned long value;
++
++	if (kstrtoul(buf, 10, &value))
++		return -EINVAL;
++
++	if (value >= 25600 )
++		return -EINVAL;
++
++	value /= 100;
++	mutex_lock(&data->update_lock);
++	i2c_smbus_write_byte_data(client, CPLD_FAN_I2C_REG_REAR_MIN, value);
++	mutex_unlock(&data->update_lock);
++
++	return count;
++}
++
++/* read rear max speed */
++static ssize_t show_rear_max(struct device *dev, struct device_attribute *attr,
++			char *buf)
++{
++	struct ec_fan_cpld_data *data = dev_get_drvdata(dev);
++	struct i2c_client *client = data->client;
++	struct sensor_device_attribute *sensor_attr = to_sensor_dev_attr(attr);
++	int nr = sensor_attr->index;
++	s32 value = i2c_smbus_read_byte_data(client, CPLD_FAN_I2C_REG_REAR_MAX);
++
++	return sprintf(buf, "%d\n", value * 100);
++}
++
++/* write rear max speed */
++static ssize_t store_rear_max(struct device *dev, struct device_attribute *attr,
++		const char *buf, size_t count)
++{
++	struct ec_fan_cpld_data *data = dev_get_drvdata(dev);
++	struct i2c_client *client = data->client;
++	unsigned long value;
++
++	if (kstrtoul(buf, 10, &value))
++		return -EINVAL;
++
++	if (value >= 25600 )
++		return -EINVAL;
++
++	value /= 100;
++	mutex_lock(&data->update_lock);
++	i2c_smbus_write_byte_data(client, CPLD_FAN_I2C_REG_REAR_MAX, value);
++	mutex_unlock(&data->update_lock);
++
++	return count;
++}
++
++/* read front fan speed in rpm */
++static ssize_t show_front_speed(struct device *dev, struct device_attribute *attr,
++			char *buf)
++{
++	struct ec_fan_cpld_data *data = dev_get_drvdata(dev);
++	struct i2c_client *client = data->client;
++	struct sensor_device_attribute *sensor_attr = to_sensor_dev_attr(attr);
++	int nr = sensor_attr->index;
++	s32 value = i2c_smbus_read_byte_data(client, CPLD_FAN_I2C_REG_FRNT_SPEED + nr);
++	int  rpm = value & 0xff;
++
++	return sprintf(buf, "%d\n", rpm * 100);
++}
++
++/* read rear fan speed in rpm */
++static ssize_t show_rear_speed(struct device *dev, struct device_attribute *attr,
++			char *buf)
++{
++	struct ec_fan_cpld_data *data = dev_get_drvdata(dev);
++	struct i2c_client *client = data->client;
++	struct sensor_device_attribute *sensor_attr = to_sensor_dev_attr(attr);
++	int nr = sensor_attr->index;
++	s32 value = i2c_smbus_read_byte_data(client, CPLD_FAN_I2C_REG_REAR_SPEED + nr);
++	int  rpm = value & 0xff;
++
++	return sprintf(buf, "%d\n", rpm * 100);
++}
++
++/* read front fan label */
++static ssize_t show_front_label(struct device *dev, struct device_attribute *attr,
++			char *buf)
++{
++	struct sensor_device_attribute *sensor_attr = to_sensor_dev_attr(attr);
++	int nr = sensor_attr->index;
++
++	return sprintf(buf, "front fan%d\n", nr+1);
++}
++
++/* read rear fan label */
++static ssize_t show_rear_label(struct device *dev, struct device_attribute *attr,
++			char *buf)
++{
++	struct sensor_device_attribute *sensor_attr = to_sensor_dev_attr(attr);
++	int nr = sensor_attr->index;
++
++	return sprintf(buf, "rear fan%d\n", nr+1);
++}
++
++/* read front fan desired speed in rpm */
++static ssize_t show_front_target(struct device *dev, struct device_attribute *attr,
++			char *buf)
++{
++	struct ec_fan_cpld_data *data = dev_get_drvdata(dev);
++	struct i2c_client *client = data->client;
++	s32 value = i2c_smbus_read_byte_data(client, CPLD_FAN_I2C_REG_PWM);
++	int duty_cyc = value & 0xf;
++	int target = Front_target_table[duty_cyc];
++
++	return sprintf(buf, "%d\n", target);
++}
++
++/* read rear fan desired speed in rpm */
++static ssize_t show_rear_target(struct device *dev, struct device_attribute *attr,
++			char *buf)
++{
++	struct ec_fan_cpld_data *data = dev_get_drvdata(dev);
++	struct i2c_client *client = data->client;
++	s32 value = i2c_smbus_read_byte_data(client, CPLD_FAN_I2C_REG_PWM);
++	int duty_cyc = value & 0xf;
++	int target = Rear_target_table[duty_cyc];
++
++	return sprintf(buf, "%d\n", target);
++}
++
++static struct sensor_device_attribute cpld_fan_bd_info[] = {
++       SENSOR_ATTR(board_info, S_IRUGO,
++               show_cpld_bd, NULL, 0),
++};
++
++static struct sensor_device_attribute cpld_fan_cpld_vers[] = {
++       SENSOR_ATTR(cpld_version, S_IRUGO,
++               show_cpld_version, NULL, 0),
++};
++
++static struct sensor_device_attribute cpld_fan_reset[] = {
++	SENSOR_ATTR(reset, S_IWUSR,
++		NULL, store_reset, 0),
++};
++
++static struct sensor_device_attribute cpld_fan_jtag_selection[] = {
++       SENSOR_ATTR(jtag_sel, S_IRUGO,
++               show_jtag_selection, store_jtag_selection, 0),
++};
++
++static struct sensor_device_attribute cpld_fan_clock_selection[] = {
++       SENSOR_ATTR(clock_sel, S_IRUGO,
++               show_clock_selection, store_clock_selection, 0),
++};
++
++static struct sensor_device_attribute cpld_fan_present[] = {
++	SENSOR_ATTR(fan1_Presence, S_IRUGO,
++		show_fan_present, NULL, 0),
++	SENSOR_ATTR(fan2_Presence, S_IRUGO,
++		show_fan_present, NULL, 1),
++	SENSOR_ATTR(fan3_Presence, S_IRUGO,
++		show_fan_present, NULL, 2),
++	SENSOR_ATTR(fan4_Presence, S_IRUGO,
++		show_fan_present, NULL, 3),
++};
++
++static struct sensor_device_attribute cpld_fan_direction[] = {
++	SENSOR_ATTR(fan1_dir, S_IRUGO,
++		show_fan_dir, NULL, 0),
++	SENSOR_ATTR(fan2_dir, S_IRUGO,
++		show_fan_dir, NULL, 1),
++	SENSOR_ATTR(fan3_dir, S_IRUGO,
++		show_fan_dir, NULL, 2),
++	SENSOR_ATTR(fan4_dir, S_IRUGO,
++		show_fan_dir, NULL, 3),
++};
++
++static struct sensor_device_attribute cpld_fan_led[] = {
++	SENSOR_ATTR(fan1_led, S_IRUGO,
++		show_fan_display_led, NULL, 0),
++	SENSOR_ATTR(fan2_led, S_IRUGO,
++		show_fan_display_led, NULL, 1),
++	SENSOR_ATTR(fan3_led, S_IRUGO,
++		show_fan_display_led, NULL, 2),
++	SENSOR_ATTR(fan4_led, S_IRUGO,
++		show_fan_display_led, NULL, 3),
++};
++
++static struct sensor_device_attribute cpld_fan_wdt_enable[] = {
++	SENSOR_ATTR(fan_wdt_enable, S_IRUGO | S_IWUSR,
++		show_fan_wdt_enable, store_fan_wdt_enable, 0),
++};
++
++static struct sensor_device_attribute cpld_fan_wdt_update[] = {
++	SENSOR_ATTR(fan_wdt_update, S_IRUGO | S_IWUSR,
++		show_fan_wdt_update, store_fan_wdt_update, 0),
++};
++
++static struct sensor_device_attribute cpld_fan_wdt_timer_val[] = {
++	SENSOR_ATTR(fan_wdt_tmr_val, S_IRUGO | S_IWUSR,
++		show_fan_wdt_tmr_val, store_fan_wdt_tmr_val, 0),
++};
++
++static struct sensor_device_attribute cpld_fan_wdt_trigger[] = {
++	SENSOR_ATTR(fan_wdt_trigger, S_IRUGO | S_IWUSR,
++		show_fan_wdt_trigger, store_fan_wdt_trigger, 0),
++};
++
++static struct sensor_device_attribute cpld_fan_wdt_timeout_flag[] = {
++	SENSOR_ATTR(fan_wdt_timeout_flag, S_IRUGO,
++		show_fan_wdt_timeout_flag, NULL, 0),
++};
++
++static struct sensor_device_attribute cpld_fan_temp_int_mask[] = {
++	SENSOR_ATTR(temp1_int_mask, S_IRUGO | S_IWUSR,
++		show_temp_int_mask, store_temp_int_mask, 0),
++	SENSOR_ATTR(temp2_int_mask, S_IRUGO | S_IWUSR,
++		show_temp_int_mask, store_temp_int_mask, 1),
++};
++
++static struct sensor_device_attribute cpld_fan_temp_int_status[] = {
++	SENSOR_ATTR(temp1_int_status, S_IRUGO,
++		show_temp_int_status, NULL, 0),
++	SENSOR_ATTR(temp2_int_status, S_IRUGO,
++		show_temp_int_status, NULL, 1),
++};
++
++static struct sensor_device_attribute cpld_fan_fantray_int_mask[] = {
++	SENSOR_ATTR(fan1_int_mask, S_IRUGO | S_IWUSR,
++		show_fan_int_mask, store_fan_int_mask, 0),
++	SENSOR_ATTR(fan2_int_mask, S_IRUGO | S_IWUSR,
++		show_fan_int_mask, store_fan_int_mask, 1),
++	SENSOR_ATTR(fan3_int_mask, S_IRUGO | S_IWUSR,
++		show_fan_int_mask, store_fan_int_mask, 2),
++	SENSOR_ATTR(fan4_int_mask, S_IRUGO | S_IWUSR,
++		show_fan_int_mask, store_fan_int_mask, 3),
++};
++
++static struct sensor_device_attribute cpld_fan_fantray_int_status[] = {
++	SENSOR_ATTR(fan1_int_status, S_IRUGO,
++		show_fan_int_status, NULL, 0),
++	SENSOR_ATTR(fan2_int_status, S_IRUGO,
++		show_fan_int_status, NULL, 1),
++	SENSOR_ATTR(fan3_int_status, S_IRUGO,
++		show_fan_int_status, NULL, 2),
++	SENSOR_ATTR(fan4_int_status, S_IRUGO,
++		show_fan_int_status, NULL, 3),
++};
++
++static struct sensor_device_attribute cpld_fan_power_enable[] = {
++	SENSOR_ATTR(fan1_enable, S_IRUGO | S_IWUSR,
++		show_power_enable, store_power_enable, 0),
++	SENSOR_ATTR(fan2_enable, S_IRUGO | S_IWUSR,
++		show_power_enable, store_power_enable, 1),
++	SENSOR_ATTR(fan3_enable, S_IRUGO | S_IWUSR,
++		show_power_enable, store_power_enable, 2),
++	SENSOR_ATTR(fan4_enable, S_IRUGO | S_IWUSR,
++		show_power_enable, store_power_enable, 3),
++};
++
++static struct sensor_device_attribute cpld_fan_pwm[] = {
++	SENSOR_ATTR(pwm_1, S_IRUGO | S_IWUSR,
++		show_duty_cycle, store_duty_cycle, 0),
++};
++
++static struct sensor_device_attribute cpld_fan_clk_div_pwm[] = {
++	SENSOR_ATTR(clk_div_pwm, S_IRUGO | S_IWUSR,
++		show_clk_div_pwm, store_clk_div_pwm, 0),
++};
++
++static struct sensor_device_attribute cpld_fan_clk_div_tach[] = {
++	SENSOR_ATTR(clk_div_tach, S_IRUGO | S_IWUSR,
++		show_clk_div_tach, store_clk_div_tach, 0),
++};
++
++static struct sensor_device_attribute cpld_fan_frnt_min[] = {
++	SENSOR_ATTR(fan1_min, S_IRUGO | S_IWUSR,
++		show_front_min, store_front_min, 0),
++};
++
++static struct sensor_device_attribute cpld_fan_frnt_max[] = {
++	SENSOR_ATTR(fan1_max, S_IRUGO | S_IWUSR,
++		show_front_max, store_front_max, 0),
++};
++
++static struct sensor_device_attribute cpld_fan_rear_min[] = {
++	SENSOR_ATTR(fan2_min, S_IRUGO | S_IWUSR,
++		show_rear_min, store_rear_min, 0),
++};
++
++static struct sensor_device_attribute cpld_fan_rear_max[] = {
++	SENSOR_ATTR(fan2_max, S_IRUGO | S_IWUSR,
++		show_rear_max, store_rear_max, 0),
++};
++
++static struct sensor_device_attribute cpld_fan_frnt_speed[] = {
++	SENSOR_ATTR(fan1_input, S_IRUGO,
++		show_front_speed, NULL, 0),
++	SENSOR_ATTR(fan2_input, S_IRUGO,
++		show_front_speed, NULL, 1),
++	SENSOR_ATTR(fan3_input, S_IRUGO,
++		show_front_speed, NULL, 2),
++	SENSOR_ATTR(fan4_input, S_IRUGO,
++		show_front_speed, NULL, 3),
++};
++
++static struct sensor_device_attribute cpld_fan_rear_speed[] = {
++	SENSOR_ATTR(fan5_input, S_IRUGO,
++		show_rear_speed, NULL, 0),
++	SENSOR_ATTR(fan6_input, S_IRUGO,
++		show_rear_speed, NULL, 1),
++	SENSOR_ATTR(fan7_input, S_IRUGO,
++		show_rear_speed, NULL, 2),
++	SENSOR_ATTR(fan8_input, S_IRUGO,
++		show_rear_speed, NULL, 3),
++};
++
++static struct sensor_device_attribute cpld_fan_frnt_label[] = {
++	SENSOR_ATTR(fan1_label, S_IRUGO,
++		show_front_label, NULL, 0),
++	SENSOR_ATTR(fan2_label, S_IRUGO,
++		show_front_label, NULL, 1),
++	SENSOR_ATTR(fan3_label, S_IRUGO,
++		show_front_label, NULL, 2),
++	SENSOR_ATTR(fan4_label, S_IRUGO,
++		show_front_label, NULL, 3),
++};
++
++static struct sensor_device_attribute cpld_fan_rear_label[] = {
++	SENSOR_ATTR(fan5_label, S_IRUGO,
++		show_rear_label, NULL, 0),
++	SENSOR_ATTR(fan6_label, S_IRUGO,
++		show_rear_label, NULL, 1),
++	SENSOR_ATTR(fan7_label, S_IRUGO,
++		show_rear_label, NULL, 2),
++	SENSOR_ATTR(fan8_label, S_IRUGO,
++		show_rear_label, NULL, 3),
++};
++
++static struct sensor_device_attribute cpld_fan_frnt_target[] = {
++	SENSOR_ATTR(fan1_target, S_IRUGO,
++		show_front_target, NULL, 0),
++	SENSOR_ATTR(fan2_target, S_IRUGO,
++		show_front_target, NULL, 1),
++	SENSOR_ATTR(fan3_target, S_IRUGO,
++		show_front_target, NULL, 2),
++	SENSOR_ATTR(fan4_target, S_IRUGO,
++		show_front_target, NULL, 3),
++};
++
++static struct sensor_device_attribute cpld_fan_rear_target[] = {
++	SENSOR_ATTR(fan5_target, S_IRUGO,
++		show_rear_target, NULL, 0),
++	SENSOR_ATTR(fan6_target, S_IRUGO,
++		show_rear_target, NULL, 1),
++	SENSOR_ATTR(fan7_target, S_IRUGO,
++		show_rear_target, NULL, 2),
++	SENSOR_ATTR(fan8_target, S_IRUGO,
++		show_rear_target, NULL, 3),
++};
++
++static struct attribute *ec_fan_cpld_attributes[] = {
++	&cpld_fan_bd_info[0].dev_attr.attr,
++	&cpld_fan_cpld_vers[0].dev_attr.attr,
++	&cpld_fan_reset[0].dev_attr.attr,
++	&cpld_fan_jtag_selection[0].dev_attr.attr,
++	&cpld_fan_clock_selection[0].dev_attr.attr,
++	&cpld_fan_present[0].dev_attr.attr,
++	&cpld_fan_present[1].dev_attr.attr,
++	&cpld_fan_present[2].dev_attr.attr,
++	&cpld_fan_present[3].dev_attr.attr,
++	&cpld_fan_direction[0].dev_attr.attr,
++	&cpld_fan_direction[1].dev_attr.attr,
++	&cpld_fan_direction[2].dev_attr.attr,
++	&cpld_fan_direction[3].dev_attr.attr,
++	&cpld_fan_led[0].dev_attr.attr,
++	&cpld_fan_led[1].dev_attr.attr,
++	&cpld_fan_led[2].dev_attr.attr,
++	&cpld_fan_led[3].dev_attr.attr,
++	&cpld_fan_wdt_enable[0].dev_attr.attr,
++	&cpld_fan_wdt_update[0].dev_attr.attr,
++	&cpld_fan_wdt_timer_val[0].dev_attr.attr,
++	&cpld_fan_wdt_trigger[0].dev_attr.attr,
++	&cpld_fan_wdt_timeout_flag[0].dev_attr.attr,
++	&cpld_fan_temp_int_mask[0].dev_attr.attr,
++	&cpld_fan_temp_int_mask[1].dev_attr.attr,
++	&cpld_fan_temp_int_status[0].dev_attr.attr,
++	&cpld_fan_temp_int_status[1].dev_attr.attr,
++	&cpld_fan_fantray_int_mask[0].dev_attr.attr,
++	&cpld_fan_fantray_int_mask[1].dev_attr.attr,
++	&cpld_fan_fantray_int_mask[2].dev_attr.attr,
++	&cpld_fan_fantray_int_mask[3].dev_attr.attr,
++	&cpld_fan_fantray_int_status[0].dev_attr.attr,
++	&cpld_fan_fantray_int_status[1].dev_attr.attr,
++	&cpld_fan_fantray_int_status[2].dev_attr.attr,
++	&cpld_fan_fantray_int_status[3].dev_attr.attr,
++	&cpld_fan_power_enable[0].dev_attr.attr,
++	&cpld_fan_power_enable[1].dev_attr.attr,
++	&cpld_fan_power_enable[2].dev_attr.attr,
++	&cpld_fan_power_enable[3].dev_attr.attr,
++	&cpld_fan_pwm[0].dev_attr.attr,
++	&cpld_fan_clk_div_pwm[0].dev_attr.attr,
++	&cpld_fan_clk_div_tach[0].dev_attr.attr,
++	&cpld_fan_frnt_min[0].dev_attr.attr,
++	&cpld_fan_frnt_max[0].dev_attr.attr,
++	&cpld_fan_rear_min[0].dev_attr.attr,
++	&cpld_fan_rear_max[0].dev_attr.attr,
++	&cpld_fan_frnt_speed[0].dev_attr.attr,
++	&cpld_fan_frnt_speed[1].dev_attr.attr,
++	&cpld_fan_frnt_speed[2].dev_attr.attr,
++	&cpld_fan_frnt_speed[3].dev_attr.attr,
++	&cpld_fan_rear_speed[0].dev_attr.attr,
++	&cpld_fan_rear_speed[1].dev_attr.attr,
++	&cpld_fan_rear_speed[2].dev_attr.attr,
++	&cpld_fan_rear_speed[3].dev_attr.attr,
++	&cpld_fan_frnt_label[0].dev_attr.attr,
++	&cpld_fan_frnt_label[1].dev_attr.attr,
++	&cpld_fan_frnt_label[2].dev_attr.attr,
++	&cpld_fan_frnt_label[3].dev_attr.attr,
++	&cpld_fan_rear_label[0].dev_attr.attr,
++	&cpld_fan_rear_label[1].dev_attr.attr,
++	&cpld_fan_rear_label[2].dev_attr.attr,
++	&cpld_fan_rear_label[3].dev_attr.attr,
++	&cpld_fan_frnt_target[0].dev_attr.attr,
++	&cpld_fan_frnt_target[1].dev_attr.attr,
++	&cpld_fan_frnt_target[2].dev_attr.attr,
++	&cpld_fan_frnt_target[3].dev_attr.attr,
++	&cpld_fan_rear_target[0].dev_attr.attr,
++	&cpld_fan_rear_target[1].dev_attr.attr,
++	&cpld_fan_rear_target[2].dev_attr.attr,
++	&cpld_fan_rear_target[3].dev_attr.attr,
++	NULL
++};
++
++static const struct attribute_group ec_fan_cpld_group = {
++	.attrs = ec_fan_cpld_attributes,
++};
++static const struct attribute_group *ec_fan_cpld_groups_array[] = {
++	&ec_fan_cpld_group,
++	NULL
++};
++
++static int ec_fan_cpld_probe(struct i2c_client *client,
++	const struct i2c_device_id *id)
++{
++	struct ec_fan_cpld_data *data;
++	struct device *dev = &client->dev;
++	int err;
++
++	data = devm_kzalloc(&client->dev, sizeof(struct ec_fan_cpld_data),
++			GFP_KERNEL);
++	if (!data)
++		return -ENOMEM;
++
++	i2c_set_clientdata(client, data);
++	data->client = client;
++	mutex_init(&data->update_lock);
++
++	/* Everything is ready, now register the working device */
++	data->hwmon_dev = hwmon_device_register_with_info(dev, client->name, data, NULL, ec_fan_cpld_groups_array);
++	if (IS_ERR(data->hwmon_dev)) {
++		err = PTR_ERR(data->hwmon_dev);
++		goto error5;
++	}
++
++	dev_info(dev, "%s: sensor '%s'\n", dev_name(data->hwmon_dev), client->name);
++	return 0;
++
++error5:
++	return err;
++}
++
++static int ec_fan_cpld_remove(struct i2c_client *client)
++{
++	struct ec_fan_cpld_data *data = i2c_get_clientdata(client);
++
++	hwmon_device_unregister(data->hwmon_dev);
++
++	return 0;
++}
++
++static const struct i2c_device_id ec_fan_cpld_id[] = {
++	{ "ec_fan_cpld", 0 },
++	{ }
++};
++MODULE_DEVICE_TABLE(i2c, ec_fan_cpld_id);
++
++static const struct of_device_id ec_fan_cpld_of_match[] = {
++	{ .compatible = "edge-core,ec_fan_cpld1" },
++	{}
++};
++MODULE_DEVICE_TABLE(of, ec_fan_cpld_of_match);
++
++static struct i2c_driver ec_fan_cpld_driver = {
++	.class          = I2C_CLASS_HWMON,
++	.driver = {
++		.name = "ec_fan_cpld_drv",
++		.of_match_table = ec_fan_cpld_of_match,
++	},
++	.probe          = ec_fan_cpld_probe,
++	.remove         = ec_fan_cpld_remove,
++	.id_table       = ec_fan_cpld_id,
++};
++
++module_i2c_driver(ec_fan_cpld_driver);
++MODULE_AUTHOR("Simon Fannin <simon_fan@edge-core.com>");
++MODULE_DESCRIPTION("Edge-Core Network CPLD FAN driver");
++MODULE_LICENSE("GPL");
+diff --git a/drivers/hwmon/Makefile b/drivers/hwmon/Makefile
+index c2c8bb55a67a..9d5a0503089a 100644
+--- a/drivers/hwmon/Makefile
++++ b/drivers/hwmon/Makefile
+@@ -179,6 +179,7 @@ obj-$(CONFIG_SENSORS_W83L786NG)	+= w83l786ng.o
+ obj-$(CONFIG_SENSORS_WM831X)	+= wm831x-hwmon.o
+ obj-$(CONFIG_SENSORS_WM8350)	+= wm8350-hwmon.o
+ obj-$(CONFIG_SENSORS_XGENE)	+= xgene-hwmon.o
++obj-$(CONFIG_SENSORS_EC_FAN_CPLD) += ec_fan_cpld.o
+ 
+ obj-$(CONFIG_SENSORS_OCC)	+= occ/
+ obj-$(CONFIG_PMBUS)		+= pmbus/
+diff --git a/drivers/hwmon/Kconfig b/drivers/hwmon/Kconfig
+index 9e118d700b48..4eece93869f4 100644
+--- a/drivers/hwmon/Kconfig
++++ b/drivers/hwmon/Kconfig
+@@ -1950,6 +1950,11 @@ config SENSORS_XGENE
+ 	  If you say yes here you get support for the temperature
+ 	  and power sensors for APM X-Gene SoC.
+ 
++config SENSORS_EC_FAN_CPLD
++	tristate "Edge-core FAN CPLD driver"
++	help
++	  If you say yes here you get support for the EC FAN CPLD.
++
+ if ACPI
+ 
+ comment "ACPI drivers"

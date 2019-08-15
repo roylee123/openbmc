@@ -1,0 +1,589 @@
+diff --git a/arch/arm/boot/dts/aspeed-bmc-opp-sylvia.dts b/arch/arm/boot/dts/aspeed-bmc-opp-sylvia.dts
+new file mode 100644
+index 000000000000..26527d417ac6
+--- /dev/null
++++ b/arch/arm/boot/dts/aspeed-bmc-opp-sylvia.dts
+@@ -0,0 +1,571 @@
++// SPDX-License-Identifier: GPL-2.0+
++/dts-v1/;
++
++#include "aspeed-g4.dtsi"
++#include <dt-bindings/gpio/aspeed-gpio.h>
++
++/ {
++	model = "Sylvia BMC";
++	compatible = "tyan,palmetto-bmc", "aspeed,ast2400";
++
++	chosen {
++		stdout-path = &uart5;
++		bootargs = "console=ttyS4,115200 earlyprintk";
++	};
++
++	memory@40000000 {
++		reg = <0x40000000 0x20000000>;
++	};
++
++	reserved-memory {
++		#address-cells = <1>;
++		#size-cells = <1>;
++		ranges;
++
++		vga_memory: framebuffer@5f000000 {
++			no-map;
++			reg = <0x5f000000 0x01000000>; /* 16M */
++		};
++
++		coldfire_memory: codefire_memory@5ee00000 {
++			reg = <0x5ee00000 0x00200000>;
++			no-map;
++		};
++
++		flash_memory: region@5c000000 {
++			no-map;
++			reg = <0x5C000000 0x02000000>; /* 32MB */
++		};
++	};
++
++	leds {
++		compatible = "gpio-leds";
++
++		heartbeat {
++			gpios = <&gpio ASPEED_GPIO(R, 4) GPIO_ACTIVE_LOW>;
++		};
++
++		power {
++			gpios = <&gpio ASPEED_GPIO(R, 5) GPIO_ACTIVE_LOW>;
++		};
++
++		identify {
++			gpios = <&gpio ASPEED_GPIO(A, 2) GPIO_ACTIVE_LOW>;
++		};
++	};
++
++	fsi: gpio-fsi {
++		compatible = "aspeed,ast2400-cf-fsi-master", "fsi-master";
++		#address-cells = <2>;
++		#size-cells = <0>;
++
++		memory-region = <&coldfire_memory>;
++		aspeed,sram = <&sram>;
++		aspeed,cvic = <&cvic>;
++
++		clock-gpios = <&gpio ASPEED_GPIO(A, 4) GPIO_ACTIVE_HIGH>;
++		data-gpios = <&gpio ASPEED_GPIO(A, 5) GPIO_ACTIVE_HIGH>;
++		mux-gpios = <&gpio ASPEED_GPIO(A, 6) GPIO_ACTIVE_HIGH>;
++		enable-gpios = <&gpio ASPEED_GPIO(D, 0) GPIO_ACTIVE_HIGH>;
++		trans-gpios = <&gpio ASPEED_GPIO(H, 6) GPIO_ACTIVE_HIGH>;
++	};
++
++	gpio-keys {
++		compatible = "gpio-keys";
++
++		checkstop {
++			label = "checkstop";
++			gpios = <&gpio ASPEED_GPIO(P, 5) GPIO_ACTIVE_LOW>;
++			linux,code = <ASPEED_GPIO(P, 5)>;
++		};
++	};
++};
++
++&fmc {
++	status = "okay";
++	flash@0 {
++		status = "okay";
++		m25p,fast-read;
++		label = "bmc";
++		spi-max-frequency = <50000000>;
++#include "openbmc-flash-layout.dtsi"
++	};
++};
++
++&spi {
++	status = "okay";
++	pinctrl-names = "default";
++	pinctrl-0 = <&pinctrl_spi1debug_default>;
++
++	flash@0 {
++		status = "okay";
++		m25p,fast-read;
++		spi-max-frequency = <50000000>;
++		label = "pnor";
++	};
++};
++
++&pinctrl {
++	pinctrl-names = "default";
++	pinctrl-0 = <&pinctrl_flbusy_default &pinctrl_flwp_default
++
++			&pinctrl_vgahs_default &pinctrl_vgavs_default
++			&pinctrl_ddcclk_default &pinctrl_ddcdat_default>;
++};
++
++&uart1 {
++	/* Rear RS-232 connector */
++	status = "okay";
++
++	pinctrl-names = "default";
++	pinctrl-0 = <&pinctrl_txd1_default
++			&pinctrl_rxd1_default
++			&pinctrl_nrts1_default
++			&pinctrl_ndtr1_default
++			&pinctrl_ndsr1_default
++			&pinctrl_ncts1_default
++			&pinctrl_ndcd1_default
++			&pinctrl_nri1_default>;
++};
++
++&uart5 {
++	status = "okay";
++};
++
++&kcs3 {
++	// BMC KCS channel 3
++	status = "okay";
++	kcs_addr = <0xca2>;
++};
++
++&mac0 {
++	status = "okay";
++
++	use-ncsi;
++
++	pinctrl-names = "default";
++	pinctrl-0 = <&pinctrl_rmii1_default>;
++};
++
++&i2c0 {
++	status = "okay";
++};
++
++&i2c4 {
++	status = "okay";
++
++	i2c-mux1@71 {
++		compatible = "nxp,pca9548";
++		i2c-mux-idle-disconnect;
++		reg = <0x71>;
++
++		i2c4_71_chan0: i2c@0 {
++			reg = <0>;
++		};
++
++		i2c4_71_chan1: i2c@1 {
++			reg = <1>;
++		};
++
++		i2c4_71_chan2: i2c@2 {
++			reg = <2>;
++		};
++
++		i2c4_71_chan3: i2c@3 {
++			reg = <3>;
++		};
++
++		i2c4_71_chan4: i2c@4 {
++			reg = <4>;
++		};
++
++		i2c4_71_chan5: i2c@5 {
++			reg = <5>;
++		};
++
++		i2c4_71_chan6: i2c@6 {
++			reg = <6>;
++		};
++
++		i2c4_71_chan7: i2c@7 {
++			reg = <7>;
++		};
++	};
++};
++
++&i2c8 {
++	status = "okay";
++};
++
++&i2c4_71_chan5 {
++	i2c-mux2@73 {
++		compatible = "nxp,pca9548";
++		i2c-mux-idle-disconnect;
++		reg = <0x73>;
++
++		i2c4_71_73_chan0: i2c@0 {
++			reg = <0>;
++		};
++
++		i2c4_71_73_chan1: i2c@1 {
++			reg = <1>;
++			sensor9@fan_temp1_4d {
++				compatible = "national,lm75";
++				reg = <0x4d>;
++			};
++
++			sensor10@fan_temp2_4e {
++				compatible = "national,lm75";
++				reg = <0x4e>;
++			};
++
++			sensor13@fan_cpld_68 {
++				compatible = "edge-core,ec_fan_cpld1";
++				reg = <0x68>;
++			};
++		};
++
++		i2c4_71_73_chan2: i2c@2 {
++			reg = <2>;
++		};
++
++		i2c4_71_73_chan3: i2c@3 {
++			reg = <3>;
++
++			sensor4@lm75db_4b {
++				compatible = "national,lm75";
++				reg = <0x4b>;
++			};
++		};
++
++		i2c4_71_73_chan4: i2c@4 {
++			reg = <4>;
++		};
++
++		i2c4_71_73_chan5: i2c@5 {
++			reg = <5>;
++
++			sensor5@88470_thermal_4c {
++				compatible = "national,lm75";
++				reg = <0x4c>;
++			};
++		};
++
++		i2c4_71_73_chan6: i2c@6 {
++			reg = <6>;
++
++			sensor6@lm75bd_1_4a {
++				compatible = "national,lm75";
++				reg = <0x4a>;
++			};
++
++			sensor7@lm75bd_2_49 {
++				compatible = "national,lm75";
++				reg = <0x49>;
++			};
++
++			sensor8@lm75bd_3_4e {
++				compatible = "national,lm75";
++				reg = <0x4e>;
++			};
++		};
++
++		i2c4_71_73_chan7: i2c@7 {
++			reg = <7>;
++		};
++	};
++};
++
++&i2c4_71_chan6 {
++	i2c-mux3@74 {
++		compatible = "nxp,pca9548";
++		i2c-mux-idle-disconnect;
++		reg = <0x74>;
++
++		i2c4_71_74_chan0: i2c@0 {
++			reg = <0>;
++			sensor11@psu1_5b {
++				compatible = "edge-core,ir3570";
++				reg = <0x5b>;
++			};
++		};
++
++		i2c4_71_74_chan1: i2c@1 {
++			reg = <1>;
++			sensor12@psu2_58 {
++				compatible = "edge-core,ir3570";
++				reg = <0x58>;
++			};
++		};
++
++		i2c4_71_74_chan2: i2c@2 {
++			reg = <2>;
++		};
++
++		i2c4_71_74_chan3: i2c@3 {
++			reg = <3>;
++		};
++
++		i2c4_71_74_chan4: i2c@4 {
++			reg = <4>;
++		};
++
++		i2c4_71_74_chan5: i2c@5 {
++			reg = <5>;
++		};
++
++		i2c4_71_74_chan6: i2c@6 {
++			reg = <6>;
++		};
++
++		i2c4_71_74_chan7: i2c@7 {
++			reg = <7>;
++		};
++	};
++};
++
++&i2c4_71_73_chan0 {
++	i2c-mux5@75 {
++		compatible = "nxp,pca9548";
++		i2c-mux-idle-disconnect;
++		reg = <0x75>;
++
++		i2c4_71_73_75_chan0: i2c@0 {
++			reg = <0>;
++		};
++
++		i2c4_71_73_75_chan1: i2c@1 {
++			reg = <1>;
++
++			sensor1@lm75bd_5_main_48 {
++				compatible = "national,lm75";
++				reg = <0x48>;
++			};
++		};
++
++		i2c4_71_73_75_chan2: i2c@2 {
++			reg = <2>;
++
++			sensor2@lm75bd_6_main_4b {
++				compatible = "national,lm75";
++				reg = <0x4b>;
++			};
++		};
++
++		i2c4_71_73_75_chan3: i2c@3 {
++			reg = <3>;
++
++			sensor3@lm75bd_7_main_4d {
++				compatible = "national,lm75";
++				reg = <0x4d>;
++			};
++		};
++
++		i2c4_71_73_75_chan4: i2c@4 {
++			reg = <4>;
++		};
++
++		i2c4_71_73_75_chan5: i2c@5 {
++			reg = <5>;
++		};
++
++		i2c4_71_73_75_chan6: i2c@6 {
++			reg = <6>;
++		};
++
++		i2c4_71_73_75_chan7: i2c@7 {
++			reg = <7>;
++		};
++	};
++};
++
++&i2c4_71_73_chan7 {
++	i2c-mux6@75 {
++		compatible = "nxp,pca9548";
++		status = "disabled";
++		i2c-mux-idle-disconnect;
++		reg = <0x75>;
++	};
++};
++
++&vuart {
++	status = "okay";
++};
++
++&ibt {
++	status = "okay";
++};
++
++&mbox {
++	status = "okay";
++};
++
++&lpc_ctrl {
++	status = "okay";
++	memory-region = <&flash_memory>;
++	flash = <&spi>;
++};
++
++&gpio {
++	pin_func_mode0 {
++		gpio-hog;
++		gpios = <ASPEED_GPIO(C, 4) GPIO_ACTIVE_HIGH>;
++		output-low;
++		line-name = "func_mode0";
++	};
++
++	pin_func_mode1 {
++		gpio-hog;
++		gpios = <ASPEED_GPIO(C, 5)  GPIO_ACTIVE_HIGH>;
++		output-low;
++		line-name = "func_mode1";
++	};
++
++	pin_func_mode2 {
++		gpio-hog;
++		gpios = <ASPEED_GPIO(C, 6) GPIO_ACTIVE_HIGH>;
++		output-low;
++		line-name = "func_mode2";
++	};
++
++	pin_gpio_a0 {
++		gpio-hog;
++		gpios = <ASPEED_GPIO(A, 0) GPIO_ACTIVE_HIGH>;
++		input;
++		line-name = "BMC_FAN_RESERVED_N";
++	};
++
++	pin_gpio_a1 {
++		gpio-hog;
++		gpios = <ASPEED_GPIO(A, 1) GPIO_ACTIVE_HIGH>;
++		output-high;
++		line-name = "APSS_WDT_N";
++	};
++
++	pin_gpio_b1 {
++		gpio-hog;
++		gpios = <ASPEED_GPIO(B, 1) GPIO_ACTIVE_HIGH>;
++		output-high;
++		line-name = "APSS_BOOT_MODE";
++	};
++
++	pin_gpio_b2 {
++		gpio-hog;
++		gpios = <ASPEED_GPIO(B, 2) GPIO_ACTIVE_HIGH>;
++		output-high;
++		line-name = "APSS_RESET_N";
++	};
++
++	pin_gpio_b7 {
++		gpio-hog;
++		gpios = <ASPEED_GPIO(B, 7) GPIO_ACTIVE_HIGH>;
++		output-high;
++		line-name = "SPIVID_STBY_RESET_N";
++	};
++
++	pin_gpio_d1 {
++		gpio-hog;
++		gpios = <ASPEED_GPIO(D, 1) GPIO_ACTIVE_HIGH>;
++		output-high;
++		line-name = "BMC_POWER_UP";
++	};
++
++	pin_gpio_f1 {
++		gpio-hog;
++		gpios = <ASPEED_GPIO(F, 1) GPIO_ACTIVE_HIGH>;
++		input;
++		line-name = "BMC_BATTERY_TEST";
++	};
++
++	pin_gpio_f4 {
++		gpio-hog;
++		gpios = <ASPEED_GPIO(F, 4) GPIO_ACTIVE_HIGH>;
++		input;
++		line-name = "AST_HW_FAULT_N";
++	};
++
++	pin_gpio_f5 {
++		gpio-hog;
++		gpios = <ASPEED_GPIO(F, 5) GPIO_ACTIVE_HIGH>;
++		input;
++		line-name = "AST_SYS_FAULT_N";
++	};
++
++	pin_gpio_f7 {
++		gpio-hog;
++		gpios = <ASPEED_GPIO(F, 7) GPIO_ACTIVE_HIGH>;
++		output-high;
++		line-name = "BMC_FULL_SPEED_N";
++	};
++
++	pin_gpio_g3 {
++		gpio-hog;
++		gpios = <ASPEED_GPIO(G, 3) GPIO_ACTIVE_HIGH>;
++		output-high;
++		line-name = "BMC_FAN_ERROR_N";
++	};
++
++	pin_gpio_g4 {
++		gpio-hog;
++		gpios = <ASPEED_GPIO(G, 4) GPIO_ACTIVE_HIGH>;
++		input;
++		line-name = "BMC_WDT_RST1_P";
++	};
++
++	pin_gpio_g5 {
++		gpio-hog;
++		gpios = <ASPEED_GPIO(G, 5) GPIO_ACTIVE_HIGH>;
++		input;
++		line-name = "BMC_WDT_RST2_P";
++	};
++
++	pin_gpio_h0 {
++		gpio-hog;
++		gpios = <ASPEED_GPIO(H, 0) GPIO_ACTIVE_HIGH>;
++		input;
++		line-name = "PE_SLOT_TEST_EN_N";
++	};
++
++	pin_gpio_h1 {
++		gpio-hog;
++		gpios = <ASPEED_GPIO(H, 1) GPIO_ACTIVE_HIGH>;
++		input;
++		line-name = "BMC_RTCRST_N";
++	};
++
++	pin_gpio_h2 {
++		gpio-hog;
++		gpios = <ASPEED_GPIO(H, 2) GPIO_ACTIVE_HIGH>;
++		output-high;
++		line-name = "SYS_PWROK_BMC";
++	};
++
++	pin_gpio_h7 {
++		gpio-hog;
++		gpios = <ASPEED_GPIO(H, 7) GPIO_ACTIVE_HIGH>;
++		output-high;
++		line-name = "BMC_TPM_INT_N";
++	};
++};
++
++&fsi {
++	cfam@0,0 {
++		reg = <0 0>;
++		#address-cells = <1>;
++		#size-cells = <1>;
++		chip-id = <0>;
++
++		scom@1000 {
++			compatible = "ibm,fsi2pib";
++			reg = <0x1000 0x400>;
++		};
++
++		fsi_hub0: hub@3400 {
++			compatible = "ibm,fsi-master-hub";
++			reg = <0x3400 0x400>;
++			#address-cells = <2>;
++			#size-cells = <0>;
++			no-scan-on-init;
++		};
++	};
++};
+diff --git a/arch/arm/boot/dts/Makefile b/arch/arm/boot/dts/Makefile
+index 1a2db605185a..84ec109e97c9 100644
+--- a/arch/arm/boot/dts/Makefile
++++ b/arch/arm/boot/dts/Makefile
+@@ -1262,6 +1262,7 @@ dtb-$(CONFIG_ARCH_ASPEED) += \
+ 	aspeed-bmc-microsoft-olympus.dtb \
+ 	aspeed-bmc-opp-lanyang.dtb \
+ 	aspeed-bmc-opp-palmetto.dtb \
++	aspeed-bmc-opp-sylvia.dtb \
+ 	aspeed-bmc-opp-romulus.dtb \
+ 	aspeed-bmc-opp-swift.dtb \
+ 	aspeed-bmc-opp-vesnin.dtb \

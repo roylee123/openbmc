@@ -1,0 +1,13 @@
+diff --git a/rngd_jitter.c b/rngd_jitter.c
+index 54070ae..7a69bf9 100644
+--- a/rngd_jitter.c
++++ b/rngd_jitter.c
+@@ -280,7 +280,7 @@ static void *thread_entropy_task(void *data)
+ 
+ 		/* Write to pipe */
+ 		written = 0;
+-		while(me->active && written != me->buf_sz) {
++		while(written != me->buf_sz) {
+ 			message(LOG_DAEMON|LOG_DEBUG, "Writing to pipe\n");
+ 			ret = write(me->pipe_fd, &tmpbuf[written], me->buf_sz - written);
+ 			message(LOG_DAEMON|LOG_DEBUG, "DONE Writing to pipe with return %ld\n", ret);

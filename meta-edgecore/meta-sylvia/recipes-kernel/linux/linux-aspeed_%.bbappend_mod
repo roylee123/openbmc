@@ -1,0 +1,9 @@
+FILESEXTRAPATHS_prepend_sylvia := "${THISDIR}/${PN}:"
+SRC_URI += "file://sylvia.cfg \
+            file://0001-ncsi_ignore_warn_msg.patch \
+            file://0002-ipmi_add_kcs.patch \
+            file://0003-kcs_asp_add_debug.patch \
+            file://0004-add_dev_tree_sylvia.patch \
+            file://0007-add_ir3580_driver.patch \
+            file://0009-add_ec_fan_cpld_driver.patch \
+           "

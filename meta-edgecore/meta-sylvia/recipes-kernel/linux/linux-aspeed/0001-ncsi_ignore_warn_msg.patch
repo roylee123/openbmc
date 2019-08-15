@@ -1,0 +1,69 @@
+diff --git a/net/ncsi/ncsi-manage.c b/net/ncsi/ncsi-manage.c
+index 755aab66dcab..8a8756e8c19d 100644
+--- a/net/ncsi/ncsi-manage.c
++++ b/net/ncsi/ncsi-manage.c
+@@ -130,8 +130,8 @@ static void ncsi_channel_monitor(struct timer_list *t)
+ 	case NCSI_CHANNEL_MONITOR_WAIT ... NCSI_CHANNEL_MONITOR_WAIT_MAX:
+ 		break;
+ 	default:
+-		netdev_err(ndp->ndev.dev, "NCSI Channel %d timed out!\n",
+-			   nc->id);
++//		netdev_err(ndp->ndev.dev, "NCSI Channel %d timed out!\n",
++//			   nc->id);
+ 		ncsi_report_link(ndp, true);
+ 		ndp->flags |= NCSI_DEV_RESHUFFLE;
+ 
+@@ -891,7 +891,7 @@ int ncsi_update_tx_channel(struct ncsi_dev_priv *ndp,
+ 				   ret);
+ 	}
+ 
+-	netdev_info(ndp->ndev.dev, "NCSI: channel %u enables Tx\n", enable->id);
++//	netdev_info(ndp->ndev.dev, "NCSI: channel %u enables Tx\n", enable->id);
+ 
+ 	nca.channel = enable->id;
+ 	nca.package = enable->package->id;
+@@ -1053,9 +1053,11 @@ static void ncsi_configure_channel(struct ncsi_dev_priv *ndp)
+ 		} else if (nd->state == ncsi_dev_state_config_ecnt) {
+ 			if (np->preferred_channel &&
+ 			    nc != np->preferred_channel)
+-				netdev_info(ndp->ndev.dev,
+-					    "NCSI: Tx failed over to channel %u\n",
+-					    nc->id);
++{
++//				netdev_info(ndp->ndev.dev,
++//					    "NCSI: Tx failed over to channel %u\n",
++//					    nc->id);
++}
+ 			nca.type = NCSI_PKT_CMD_ECNT;
+ 			nd->state = ncsi_dev_state_config_ec;
+ 		} else if (nd->state == ncsi_dev_state_config_ec) {
+@@ -1215,9 +1217,9 @@ static int ncsi_choose_active_channel(struct ncsi_dev_priv *ndp)
+ 	}
+ 
+ 	if (list_empty(&ndp->channel_queue) && found) {
+-		netdev_info(ndp->ndev.dev,
+-			    "NCSI: No channel with link found, configuring channel %u\n",
+-			    found->id);
++//		netdev_info(ndp->ndev.dev,
++//			    "NCSI: No channel with link found, configuring channel %u\n",
++//			    found->id);
+ 		spin_lock_irqsave(&ndp->lock, flags);
+ 		list_add_tail_rcu(&found->link, &ndp->channel_queue);
+ 		spin_unlock_irqrestore(&ndp->lock, flags);
+diff --git a/net/ncsi/ncsi-rsp.c b/net/ncsi/ncsi-rsp.c
+index 7581bf919885..8f513f43a7ce 100644
+--- a/net/ncsi/ncsi-rsp.c
++++ b/net/ncsi/ncsi-rsp.c
+@@ -1154,9 +1154,9 @@ int ncsi_rcv_rsp(struct sk_buff *skb, struct net_device *dev,
+ 		payload = ntohs(hdr->length);
+ 	ret = ncsi_validate_rsp_pkt(nr, payload);
+ 	if (ret) {
+-		netdev_warn(ndp->ndev.dev,
+-			    "NCSI: 'bad' packet ignored for type 0x%x\n",
+-			    hdr->type);
++//		netdev_warn(ndp->ndev.dev,
++//			    "NCSI: 'bad' packet ignored for type 0x%x\n",
++//			    hdr->type);
+ 
+ 		if (nr->flags == NCSI_REQ_FLAG_NETLINK_DRIVEN) {
+ 			if (ret == -EPERM)

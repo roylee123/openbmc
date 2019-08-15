@@ -1,0 +1,13 @@
+diff --git a/host-cmd-manager.cpp b/host-cmd-manager.cpp
+index 0a61e634..40675f30 100644
+--- a/host-cmd-manager.cpp
++++ b/host-cmd-manager.cpp
+@@ -112,7 +112,7 @@ void Manager::clearQueue()
+ // Called for alerting the host
+ void Manager::checkQueueAndAlertHost()
+ {
+-    if (this->workQueue.size() >= 1)
++    if (0 && (this->workQueue.size() >= 1) )
+     {
+         log<level::DEBUG>("Asserting SMS Attention");
+ 

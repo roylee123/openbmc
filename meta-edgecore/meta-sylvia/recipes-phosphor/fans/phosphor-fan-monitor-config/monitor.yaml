@@ -1,0 +1,44 @@
+fans:
+  - inventory: /system/chassis/motherboard/fan0
+    allowed_out_of_range_time: 30
+    deviation: 15
+    num_sensors_nonfunc_for_fan_nonfunc: 1
+    sensors:
+      - name: FAN1_REAR
+        has_target: true
+        target_interface: xyz.openbmc_project.Control.FanPwm
+        factor: 16
+        offset: 0
+
+  - inventory: /system/chassis/motherboard/fan1
+    allowed_out_of_range_time: 30
+    deviation: 15
+    num_sensors_nonfunc_for_fan_nonfunc: 1
+    sensors:
+      - name: FAN2_REAR
+        has_target: true
+        target_interface: xyz.openbmc_project.Control.FanPwm
+        factor: 16
+        offset: 0
+
+  - inventory: /system/chassis/motherboard/fan2
+    allowed_out_of_range_time: 30
+    deviation: 15
+    num_sensors_nonfunc_for_fan_nonfunc: 1
+    sensors:
+      - name: FAN3_REAR
+        has_target: true
+        target_interface: xyz.openbmc_project.Control.FanPwm
+        factor: 16
+        offset: 0
+
+  - inventory: /system/chassis/motherboard/fan3
+    allowed_out_of_range_time: 30
+    deviation: 15
+    num_sensors_nonfunc_for_fan_nonfunc: 1
+    sensors:
+      - name: FAN4_REAR
+        has_target: true
+        target_interface: xyz.openbmc_project.Control.FanPwm
+        factor: 16
+        offset: 0

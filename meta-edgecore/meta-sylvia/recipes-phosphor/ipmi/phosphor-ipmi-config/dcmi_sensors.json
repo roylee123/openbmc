@@ -1,0 +1,86 @@
+{
+    "PSU1_VIN": [
+        {"instance": 1, "dbus": "/xyz/openbmc_project/sensors/voltage/PSU1_VIN", "record_id": 200}
+    ],
+    "PSU1_VOUT": [
+        {"instance": 1, "dbus": "/xyz/openbmc_project/sensors/voltage/PSU1_VOUT", "record_id": 201}
+    ],
+    "PSU1_IOUT": [
+        {"instance": 1, "dbus": "/xyz/openbmc_project/sensors/current/PSU1_IOUT", "record_id": 202}
+    ],
+    "PSU1_POUT": [
+        {"instance": 1, "dbus": "/xyz/openbmc_project/sensors/power/PSU1_POUT", "record_id": 203}
+    ],
+    "PSU1_TEMP": [
+        {"instance": 1, "dbus": "/xyz/openbmc_project/sensors/temperature/PSU1_TEMP", "record_id": 204}
+    ],
+    "PSU2_VIN": [
+        {"instance": 1, "dbus": "/xyz/openbmc_project/sensors/voltage/PSU2_VIN", "record_id": 210}
+    ],
+    "PSU2_VOUT": [
+        {"instance": 1, "dbus": "/xyz/openbmc_project/sensors/voltage/PSU2_VOUT", "record_id": 211}
+    ],
+    "PSU2_IOUT": [
+        {"instance": 1, "dbus": "/xyz/openbmc_project/sensors/current/PSU2_IOUT", "record_id": 212}
+    ],
+    "PSU2_POUT": [
+        {"instance": 1, "dbus": "/xyz/openbmc_project/sensors/power/PSU2_POUT", "record_id": 213}
+    ],
+    "PSU2_TEMP": [
+        {"instance": 1, "dbus": "/xyz/openbmc_project/sensors/temperature/PSU2_TEMP", "record_id": 214}
+    ],
+    "FAN1_FRONT": [
+        {"instance": 1, "dbus": "/xyz/openbmc_project/sensors/temperature/FAN1_FRONT", "record_id": 220}
+    ],
+    "FAN2_FRONT": [
+        {"instance": 1, "dbus": "/xyz/openbmc_project/sensors/temperature/FAN2_FRONT", "record_id": 221}
+    ],
+    "FAN3_FRONT": [
+        {"instance": 1, "dbus": "/xyz/openbmc_project/sensors/temperature/FAN3_FRONT", "record_id": 222}
+    ],
+    "FAN4_FRONT": [
+        {"instance": 1, "dbus": "/xyz/openbmc_project/sensors/temperature/FAN4_FRONT", "record_id": 223}
+    ],
+    "FAN1_REAR": [
+        {"instance": 1, "dbus": "/xyz/openbmc_project/sensors/temperature/FAN1_REAR", "record_id": 224}
+    ],
+    "FAN2_REAR": [
+        {"instance": 1, "dbus": "/xyz/openbmc_project/sensors/temperature/FAN2_REAR", "record_id": 225}
+    ],
+    "FAN3_REAR": [
+        {"instance": 1, "dbus": "/xyz/openbmc_project/sensors/temperature/FAN3_REAR", "record_id": 226}
+    ],
+    "FAN4_REAR": [
+        {"instance": 1, "dbus": "/xyz/openbmc_project/sensors/temperature/FAN4_REAR", "record_id": 227}
+    ],
+    "FAN_TEMP_1": [
+        {"instance": 1, "dbus": "/xyz/openbmc_project/sensors/temperature/FAN_TEMP_1", "record_id": 245}
+    ],
+    "FAN_TEMP_2": [
+        {"instance": 1, "dbus": "/xyz/openbmc_project/sensors/temperature/FAN_TEMP_2", "record_id": 246}
+    ],
+    "LM75BD_1": [
+        {"instance": 1, "dbus": "/xyz/openbmc_project/sensors/temperature/LM75BD_1", "record_id": 247}
+    ],
+    "LM75BD_2": [
+        {"instance": 1, "dbus": "/xyz/openbmc_project/sensors/temperature/LM75BD_2", "record_id": 248}
+    ],
+    "LM75BD_3": [
+        {"instance": 1, "dbus": "/xyz/openbmc_project/sensors/temperature/LM75BD_3", "record_id": 249}
+    ],
+    "LM75DB": [
+        {"instance": 1, "dbus": "/xyz/openbmc_project/sensors/temperature/LM75DB", "record_id": 250}
+    ],
+    "88470_THERMAL": [
+        {"instance": 1, "dbus": "/xyz/openbmc_project/sensors/temperature/88470_THERMAL", "record_id": 251}
+    ],
+    "LM75BD_5_MAIN": [
+        {"instance": 1, "dbus": "/xyz/openbmc_project/sensors/temperature/LM75BD_5_MAIN", "record_id": 252}
+    ],
+    "LM75BD_6_MAIN": [
+        {"instance": 1, "dbus": "/xyz/openbmc_project/sensors/temperature/LM75BD_6_MAIN", "record_id": 253}
+    ],
+    "LM75BD_7_MAIN": [
+        {"instance": 1, "dbus": "/xyz/openbmc_project/sensors/temperature/LM75BD_7_MAIN", "record_id": 254}
+    ]
+}

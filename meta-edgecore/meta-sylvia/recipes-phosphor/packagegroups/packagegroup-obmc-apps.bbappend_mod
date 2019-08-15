@@ -1,0 +1,3 @@
+RDEPENDS_${PN}-inventory += "openpower-occ-control"
+
+RDEPENDS_${PN}-extras += "phosphor-webui phosphor-ipmi-flash dbus-sensors phosphor-pid-control openpower-fru-vpd phosphor-rest phosphor-ipmi-ethstats phosphor-sel-logger libmtp libesmtp ipmitool phosphor-host-postd phosphor-hostlogger"

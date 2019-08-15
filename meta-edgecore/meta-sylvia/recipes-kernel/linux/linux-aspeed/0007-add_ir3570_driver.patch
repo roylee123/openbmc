@@ -1,0 +1,137 @@
+diff --git a/drivers/hwmon/pmbus/ir3570.c b/drivers/hwmon/pmbus/ir3570.c
+new file mode 100644
+index 000000000000..35fd98a983d4
+--- /dev/null
++++ b/drivers/hwmon/pmbus/ir3570.c
+@@ -0,0 +1,98 @@
++/*
++ * Hardware monitoring driver for IR3570
++ *
++ * Copyright (C) IBM Corporation 2017.
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation; either version
++ * 2 of the License, or (at your option) any later version.
++ */
++
++#include <linux/err.h>
++#include <linux/i2c.h>
++#include <linux/init.h>
++#include <linux/kernel.h>
++#include <linux/module.h>
++#include "pmbus.h"
++
++static int ir3570_probe(struct i2c_client *client,
++			 const struct i2c_device_id *id)
++{
++	struct pmbus_driver_info *info;
++	u8 buf[I2C_SMBUS_BLOCK_MAX];
++	int ret;
++
++	if (!i2c_check_functionality(client->adapter,
++				     I2C_FUNC_SMBUS_READ_BYTE_DATA
++				| I2C_FUNC_SMBUS_READ_WORD_DATA
++				| I2C_FUNC_SMBUS_READ_BLOCK_DATA))
++		return -ENODEV;
++
++	ret = i2c_smbus_read_block_data(client, PMBUS_MFR_ID, buf);
++	if (ret < 0) {
++		dev_err(&client->dev, "Failed to read PMBUS_MFR_ID\n");
++		return ret;
++	}
++	dev_err(&client->dev, "Read MFR_ID(%d):%s\n", ret, buf);
++	if (ret != 9 || strncmp(buf, "ACBEL", strlen("ACBEL"))) {
++		dev_err(&client->dev, "MFR_ID unrecognised(%d)\n", ret);
++		return -ENODEV;
++	}
++
++	ret = i2c_smbus_read_block_data(client, PMBUS_MFR_MODEL, buf);
++	if (ret < 0) {
++		dev_err(&client->dev, "Failed to read PMBUS_MFR_MODEL\n");
++		return ret;
++	}
++	dev_err(&client->dev, "Read MFR_MODEL(%d):%s\n", ret, buf);
++	if (ret != 14 || strncmp(buf, "FSF019", strlen("FSF019")) ) {
++		dev_err(&client->dev, "MFR_MODEL unrecognised(%d)\n", ret);
++		return -ENODEV;
++	}
++
++	info = devm_kzalloc(&client->dev, sizeof(struct pmbus_driver_info),
++			    GFP_KERNEL);
++	if (!info)
++		return -ENOMEM;
++
++	info->pages = 2;
++	info->format[PSC_VOLTAGE_IN] = linear;
++	info->format[PSC_VOLTAGE_OUT] = linear;
++	info->format[PSC_CURRENT_IN] = linear;
++	info->format[PSC_CURRENT_OUT] = linear;
++	info->format[PSC_POWER] = linear;
++	info->format[PSC_TEMPERATURE] = linear;
++
++	info->func[0] = PMBUS_HAVE_VIN
++		| PMBUS_HAVE_VOUT | PMBUS_HAVE_IIN
++		| PMBUS_HAVE_IOUT | PMBUS_HAVE_PIN
++		| PMBUS_HAVE_POUT | PMBUS_HAVE_TEMP
++		| PMBUS_HAVE_STATUS_VOUT | PMBUS_HAVE_STATUS_IOUT
++		| PMBUS_HAVE_STATUS_INPUT | PMBUS_HAVE_STATUS_TEMP;
++	info->func[1] = info->func[0];
++
++	return pmbus_do_probe(client, id, info);
++}
++
++static const struct i2c_device_id ir3570_id[] = {
++	{"ir3570", 0},
++	{}
++};
++
++MODULE_DEVICE_TABLE(i2c, ir3570_id);
++
++static struct i2c_driver ir3570_driver = {
++	.driver = {
++		.name	= "ir3570",
++	},
++	.probe		= ir3570_probe,
++	.remove		= pmbus_do_remove,
++	.id_table	= ir3570_id,
++};
++
++module_i2c_driver(ir3570_driver);
++
++MODULE_AUTHOR("Samuel Mendoza-Jonas <sam@mendozajonas.com");
++MODULE_DESCRIPTION("PMBus driver for IR3570");
++MODULE_LICENSE("GPL");
+diff --git a/drivers/hwmon/pmbus/Kconfig b/drivers/hwmon/pmbus/Kconfig
+index a82018aaf473..7a0ce01df2a8 100644
+--- a/drivers/hwmon/pmbus/Kconfig
++++ b/drivers/hwmon/pmbus/Kconfig
+@@ -57,6 +57,16 @@ config SENSORS_IR35221
+ 	  This driver can also be built as a module. If so, the module will
+ 	  be called ir35521.
+ 
++config SENSORS_IR3570
++	tristate "Infineon IR3570/3580"
++	default n
++	help
++	  If you say yes here you get hardware monitoring support for the
++	  Infineon IR3570/3580 controller.
++
++	  This driver can also be built as a module. If so, the module will
++	  be called ir3570.
++
+ config SENSORS_LM25066
+ 	tristate "National Semiconductor LM25066 and compatibles"
+ 	default n
+diff --git a/drivers/hwmon/pmbus/Makefile b/drivers/hwmon/pmbus/Makefile
+index ea0e39518c21..b0fd74d2897a 100644
+--- a/drivers/hwmon/pmbus/Makefile
++++ b/drivers/hwmon/pmbus/Makefile
+@@ -8,6 +8,7 @@ obj-$(CONFIG_SENSORS_PMBUS)	+= pmbus.o
+ obj-$(CONFIG_SENSORS_ADM1275)	+= adm1275.o
+ obj-$(CONFIG_SENSORS_IBM_CFFPS)	+= ibm-cffps.o
+ obj-$(CONFIG_SENSORS_IR35221)	+= ir35221.o
++obj-$(CONFIG_SENSORS_IR3570)	+= ir3570.o
+ obj-$(CONFIG_SENSORS_LM25066)	+= lm25066.o
+ obj-$(CONFIG_SENSORS_LTC2978)	+= ltc2978.o
+ obj-$(CONFIG_SENSORS_LTC3815)	+= ltc3815.o

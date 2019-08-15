@@ -1,0 +1,133 @@
+diff --git a/apphandler.cpp b/apphandler.cpp
+index 09b1c2f4..0123cf5a 100644
+--- a/apphandler.cpp
++++ b/apphandler.cpp
+@@ -704,7 +704,7 @@ auto ipmiAppGetSelfTestResults() -> ipmi::RspType<uint8_t, uint8_t>
+     //      [2] 1b = Internal Use Area of BMC FRU corrupted.
+     //      [1] 1b = controller update 'boot block' firmware corrupted.
+     //      [0] 1b = controller operational firmware corrupted.
+-    constexpr uint8_t notImplemented = 0x56;
++    constexpr uint8_t notImplemented = 0x55;
+     constexpr uint8_t zero = 0;
+     return ipmi::responseSuccess(notImplemented, zero);
+ }
+diff --git a/storagehandler.cpp b/storagehandler.cpp
+index eb1944ab..1106ba10 100644
+--- a/storagehandler.cpp
++++ b/storagehandler.cpp
+@@ -734,6 +734,36 @@ ipmi_ret_t ipmi_get_repository_info(ipmi_netfn_t netfn, ipmi_cmd_t cmd,
+     return IPMI_CC_OK;
+ }
+ 
++static unsigned short bmc_sel_time_utc_value = 0;
++ipmi_ret_t ipmi_storage_set_sel_time_utc(ipmi_netfn_t netfn, ipmi_cmd_t cmd,
++                                    ipmi_request_t request,
++                                    ipmi_response_t response,
++                                    ipmi_data_len_t data_len,
++                                    ipmi_context_t context)
++{
++    char *sel_time_utc = (char *)request;
++
++    *data_len = 0;
++    bmc_sel_time_utc_value = sel_time_utc[0] | (sel_time_utc[0] << 8);
++
++    return IPMI_CC_OK;
++}
++
++ipmi_ret_t ipmi_storage_get_sel_time_utc(ipmi_netfn_t netfn, ipmi_cmd_t cmd,
++                                    ipmi_request_t request,
++                                    ipmi_response_t response,
++                                    ipmi_data_len_t data_len,
++                                    ipmi_context_t context)
++{
++    char *sel_time_utc = (char *)response;
++
++    *data_len = 2;
++    sel_time_utc[0] = bmc_sel_time_utc_value & 0xff;
++    sel_time_utc[1] = (bmc_sel_time_utc_value >> 8) & 0xff;
++
++    return IPMI_CC_OK;
++}
++
+ void register_netfn_storage_functions()
+ {
+     // <Wildcard Command>
+@@ -798,6 +828,14 @@ void register_netfn_storage_functions()
+     ipmi_register_callback(NETFUN_STORAGE, IPMI_CMD_GET_SDR, nullptr,
+                            ipmi_sen_get_sdr, PRIVILEGE_USER);
+ 
++    // <Get SEL Time UTC>
++    ipmi_register_callback(NETFUN_STORAGE, IPMI_CMD_GET_SEL_TIME_UTC, NULL,
++                           ipmi_storage_get_sel_time_utc, PRIVILEGE_USER);
++
++    // <Set SEL Time UTC>
++    ipmi_register_callback(NETFUN_STORAGE, IPMI_CMD_SET_SEL_TIME_UTC, NULL,
++                           ipmi_storage_set_sel_time_utc, PRIVILEGE_USER);
++
+     ipmi::fru::registerCallbackHandler();
+     return;
+ }
+diff --git a/storagehandler.hpp b/storagehandler.hpp
+index 9ec87cbc..22f9b09e 100644
+--- a/storagehandler.hpp
++++ b/storagehandler.hpp
+@@ -19,6 +19,9 @@ enum ipmi_netfn_storage_cmds
+     IPMI_CMD_CLEAR_SEL = 0x47,
+     IPMI_CMD_GET_SEL_TIME = 0x48,
+     IPMI_CMD_SET_SEL_TIME = 0x49,
++    IPMI_CMD_GET_SEL_TIME_UTC = 0x5C,
++    IPMI_CMD_SET_SEL_TIME_UTC = 0x5D,
++
+ 
+ };
+ 
+diff --git a/systemintfcmds.cpp b/systemintfcmds.cpp
+index 0c50c87a..ce432da9 100644
+--- a/systemintfcmds.cpp
++++ b/systemintfcmds.cpp
+@@ -126,6 +126,22 @@ ipmi_ret_t ipmi_app_set_bmc_global_enables(ipmi_netfn_t netfn, ipmi_cmd_t cmd,
+     return rc;
+ }
+ 
++// Clear Message flags Command (IPMI/Section 22.3)
++ipmi_ret_t ipmi_app_clr_msg_flags(ipmi_netfn_t netfn, ipmi_cmd_t cmd,
++                                          ipmi_request_t request,
++                                          ipmi_response_t response,
++                                          ipmi_data_len_t data_len,
++                                          ipmi_context_t context)
++{
++    ipmi_ret_t rc = IPMI_CC_OK;
++
++    *data_len = 0;
++
++    // Do nothing
++
++    return rc;
++}
++
+ namespace
+ {
+ // Static storage to keep the object alive during process life
+@@ -155,6 +171,10 @@ void register_netfn_app_functions()
+                           ipmi::app::cmdGetMessageFlags, ipmi::Privilege::Admin,
+                           ipmiAppGetMessageFlags);
+ 
++    // <Clear Message Flags>
++    ipmi_register_callback(NETFUN_APP, IPMI_CMD_CLEAR_MSG_FLAGS, NULL,
++                           ipmi_app_clr_msg_flags, SYSTEM_INTERFACE);
++
+     // Create new xyz.openbmc_project.host object on the bus
+     auto objPath = std::string{CONTROL_HOST_OBJ_MGR} + '/' + HOST_NAME + '0';
+ 
+diff --git a/systemintfcmds.hpp b/systemintfcmds.hpp
+index 4eb30bed..0846ccfb 100644
+--- a/systemintfcmds.hpp
++++ b/systemintfcmds.hpp
+@@ -20,6 +20,7 @@ enum ipmi_netfn_system_intf_cmds
+ {
+     IPMI_CMD_SET_BMC_GLOBAL_ENABLES = 0x2E,
+     IPMI_CMD_GET_BMC_GLOBAL_ENABLES = 0x2F,
++    IPMI_CMD_CLEAR_MSG_FLAGS = 0x30,
+     IPMI_CMD_GET_MSG_FLAGS = 0x31,
+     IPMI_CMD_READ_EVENT = 0x35,
+ };

@@ -1,0 +1,392 @@
+[
+    {
+        "path": "system/chassis/motherboard/powersupply0",
+        "endpoints":
+        [
+            {
+                "types":
+                {
+                    "rType": "inventory",
+                    "fType": "sensors"
+                },
+                "paths":
+                [
+                    "/xyz/openbmc_project/sensors/power/PSU1_POUT",
+                    "/xyz/openbmc_project/sensors/voltage/PSU1_VIN",
+                    "/xyz/openbmc_project/sensors/current/PSU1_IOUT",
+                    "/xyz/openbmc_project/sensors/voltage/PSU1_VOUT"
+                ]
+            },
+            {
+                "types":
+                {
+                    "rType": "chassis",
+                    "fType": "all_sensors"
+                },
+                "paths":
+                [
+                    "/xyz/openbmc_project/sensors/power/PSU1_POUT",
+                    "/xyz/openbmc_project/sensors/voltage/PSU1_VIN",
+                    "/xyz/openbmc_project/sensors/current/PSU1_IOUT",
+                    "/xyz/openbmc_project/sensors/voltage/PSU1_VOUT"
+                ]
+            }
+        ]
+    },
+    {
+        "path": "system/chassis/motherboard/powersupply1",
+        "endpoints":
+        [
+            {
+                "types":
+                {
+                    "rType": "inventory",
+                    "fType": "sensors"
+                },
+                "paths":
+                [
+                    "/xyz/openbmc_project/sensors/power/PSU2_POUT",
+                    "/xyz/openbmc_project/sensors/voltage/PSU2_VIN",
+                    "/xyz/openbmc_project/sensors/current/PSU2_IOUT",
+                    "/xyz/openbmc_project/sensors/voltage/PSU2_VOUT"
+                ]
+            },
+            {
+                "types":
+                {
+                    "rType": "chassis",
+                    "fType": "all_sensors"
+                },
+                "paths":
+                [
+                    "/xyz/openbmc_project/sensors/power/PSU2_POUT",
+                    "/xyz/openbmc_project/sensors/voltage/PSU2_VIN",
+                    "/xyz/openbmc_project/sensors/current/PSU2_IOUT",
+                    "/xyz/openbmc_project/sensors/voltage/PSU2_VOUT"
+                ]
+            }
+        ]
+    },
+    {
+        "path": "system/chassis/motherboard/fan0",
+        "endpoints":
+        [
+            {
+                "types":
+                {
+                    "rType": "inventory",
+                    "fType": "sensors"
+                },
+                "paths":
+                [
+                    "/xyz/openbmc_project/sensors/fan_tach/FAN1_FRONT",
+                    "/xyz/openbmc_project/sensors/fan_tach/FAN1_REAR"
+                ]
+            }
+        ]
+    },
+    {
+        "path": "system/chassis/motherboard/fan1",
+        "endpoints":
+        [
+            {
+                "types":
+                {
+                    "rType": "inventory",
+                    "fType": "sensors"
+                },
+                "paths":
+                [
+                    "/xyz/openbmc_project/sensors/fan_tach/FAN2_FRONT",
+                    "/xyz/openbmc_project/sensors/fan_tach/FAN2_REAR"
+                ]
+            }
+        ]
+    },
+    {
+        "path": "system/chassis/motherboard/fan2",
+        "endpoints":
+        [
+            {
+                "types":
+                {
+                    "rType": "inventory",
+                    "fType": "sensors"
+                },
+                "paths":
+                [
+                    "/xyz/openbmc_project/sensors/fan_tach/FAN3_FRONT",
+                    "/xyz/openbmc_project/sensors/fan_tach/FAN3_REAR"
+                ]
+            }
+        ]
+    },
+    {
+        "path": "system/chassis/motherboard/fan3",
+        "endpoints":
+        [
+            {
+                "types":
+                {
+                    "rType": "inventory",
+                    "fType": "sensors"
+                },
+                "paths":
+                [
+                    "/xyz/openbmc_project/sensors/fan_tach/FAN4_FRONT",
+                    "/xyz/openbmc_project/sensors/fan_tach/FAN4_REAR"
+                ]
+            }
+        ]
+    },
+    {
+        "path": "system/chassis/motherboard/PSU1_TEMP",
+        "endpoints":
+        [
+            {
+                "types":
+                {
+                    "rType": "inventory",
+                    "fType": "sensors"
+                },
+                "paths":
+                [
+                    "/xyz/openbmc_project/sensors/temperature/PSU1_TEMP"
+                ]
+            }
+        ]
+    },
+    {
+        "path": "system/chassis/motherboard/PSU2_TEMP",
+        "endpoints":
+        [
+            {
+                "types":
+                {
+                    "rType": "inventory",
+                    "fType": "sensors"
+                },
+                "paths":
+                [
+                    "/xyz/openbmc_project/sensors/temperature/PSU2_TEMP"
+                ]
+            }
+        ]
+    },
+    {
+        "path": "system/chassis/motherboard/FAN_TEMP_1",
+        "endpoints":
+        [
+            {
+                "types":
+                {
+                    "rType": "inventory",
+                    "fType": "sensors"
+                },
+                "paths":
+                [
+                    "/xyz/openbmc_project/sensors/temperature/FAN_TEMP_1"
+                ]
+            }
+        ]
+    },
+    {
+        "path": "system/chassis/motherboard/FAN_TEMP_2",
+        "endpoints":
+        [
+            {
+                "types":
+                {
+                    "rType": "inventory",
+                    "fType": "sensors"
+                },
+                "paths":
+                [
+                    "/xyz/openbmc_project/sensors/temperature/FAN_TEMP_2"
+                ]
+            }
+        ]
+    },
+    {
+        "path": "system/chassis/motherboard/LM75BD_1",
+        "endpoints":
+        [
+            {
+                "types":
+                {
+                    "rType": "inventory",
+                    "fType": "sensors"
+                },
+                "paths":
+                [
+                    "/xyz/openbmc_project/sensors/temperature/LM75BD_1"
+                ]
+            }
+        ]
+    },
+    {
+        "path": "system/chassis/motherboard/LM75BD_2",
+        "endpoints":
+        [
+            {
+                "types":
+                {
+                    "rType": "inventory",
+                    "fType": "sensors"
+                },
+                "paths":
+                [
+                    "/xyz/openbmc_project/sensors/temperature/LM75BD_2"
+                ]
+            }
+        ]
+    },
+    {
+        "path": "system/chassis/motherboard/LM75BD_3",
+        "endpoints":
+        [
+            {
+                "types":
+                {
+                    "rType": "inventory",
+                    "fType": "sensors"
+                },
+                "paths":
+                [
+                    "/xyz/openbmc_project/sensors/temperature/LM75BD_3"
+                ]
+            }
+        ]
+    },
+    {
+        "path": "system/chassis/motherboard/LM75DB",
+        "endpoints":
+        [
+            {
+                "types":
+                {
+                    "rType": "inventory",
+                    "fType": "sensors"
+                },
+                "paths":
+                [
+                    "/xyz/openbmc_project/sensors/temperature/LM75DB"
+                ]
+            }
+        ]
+    },
+    {
+        "path": "system/chassis/motherboard/88470_THERMAL",
+        "endpoints":
+        [
+            {
+                "types":
+                {
+                    "rType": "inventory",
+                    "fType": "sensors"
+                },
+                "paths":
+                [
+                    "/xyz/openbmc_project/sensors/temperature/88470_THERMAL"
+                ]
+            }
+        ]
+    },
+    {
+        "path": "system/chassis/motherboard/LM75BD_5_MAIN",
+        "endpoints":
+        [
+            {
+                "types":
+                {
+                    "rType": "inventory",
+                    "fType": "sensors"
+                },
+                "paths":
+                [
+                    "/xyz/openbmc_project/sensors/temperature/LM75BD_5_MAIN"
+                ]
+            }
+        ]
+    },
+    {
+        "path": "system/chassis/motherboard/LM75BD_6_MAIN",
+        "endpoints":
+        [
+            {
+                "types":
+                {
+                    "rType": "inventory",
+                    "fType": "sensors"
+                },
+                "paths":
+                [
+                    "/xyz/openbmc_project/sensors/temperature/LM75BD_6_MAIN"
+                ]
+            }
+        ]
+    },
+    {
+        "path": "system/chassis/motherboard/LM75BD_7_MAIN",
+        "endpoints":
+        [
+            {
+                "types":
+                {
+                    "rType": "inventory",
+                    "fType": "sensors"
+                },
+                "paths":
+                [
+                    "/xyz/openbmc_project/sensors/temperature/LM75BD_7_MAIN"
+                ]
+            }
+        ]
+    },
+    {
+        "path": "system/chassis",
+        "endpoints":
+        [
+            {
+                "types":
+                {
+                    "rType": "chassis",
+                    "fType": "all_sensors"
+                },
+                "paths":
+                [
+                    "/xyz/openbmc_project/sensors/fan_tach/FAN1_FRONT",
+                    "/xyz/openbmc_project/sensors/fan_tach/FAN1_REAR",
+                    "/xyz/openbmc_project/sensors/fan_tach/FAN2_FRONT",
+                    "/xyz/openbmc_project/sensors/fan_tach/FAN2_REAR",
+                    "/xyz/openbmc_project/sensors/fan_tach/FAN3_FRONT",
+                    "/xyz/openbmc_project/sensors/fan_tach/FAN3_REAR",
+                    "/xyz/openbmc_project/sensors/fan_tach/FAN4_FRONT",
+                    "/xyz/openbmc_project/sensors/fan_tach/FAN4_REAR",
+
+                    "/xyz/openbmc_project/sensors/voltage/PSU1_VIN",
+                    "/xyz/openbmc_project/sensors/voltage/PSU1_VOUT",
+                    "/xyz/openbmc_project/sensors/current/PSU1_IOUT",
+                    "/xyz/openbmc_project/sensors/power/PSU1_POUT",
+                    "/xyz/openbmc_project/sensors/voltage/PSU2_VIN",
+                    "/xyz/openbmc_project/sensors/voltage/PSU2_VOUT",
+                    "/xyz/openbmc_project/sensors/current/PSU2_IOUT",
+                    "/xyz/openbmc_project/sensors/power/PSU2_POUT",
+
+                    "/xyz/openbmc_project/sensors/temperature/PSU1_TEMP",
+                    "/xyz/openbmc_project/sensors/temperature/PSU2_TEMP",
+                    "/xyz/openbmc_project/sensors/temperature/FAN_TEMP_1",
+                    "/xyz/openbmc_project/sensors/temperature/FAN_TEMP_2",
+                    "/xyz/openbmc_project/sensors/temperature/LM75BD_1",
+                    "/xyz/openbmc_project/sensors/temperature/LM75BD_2",
+                    "/xyz/openbmc_project/sensors/temperature/LM75BD_3",
+                    "/xyz/openbmc_project/sensors/temperature/LM75DB",
+                    "/xyz/openbmc_project/sensors/temperature/88470_THERMAL",
+                    "/xyz/openbmc_project/sensors/temperature/LM75BD_5_MAIN",
+                    "/xyz/openbmc_project/sensors/temperature/LM75BD_6_MAIN",
+                    "/xyz/openbmc_project/sensors/temperature/LM75BD_7_MAIN"
+                ]
+            }
+        ]
+    }
+]
